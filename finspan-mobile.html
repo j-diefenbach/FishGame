@@ -20,7 +20,7 @@
     --danger: #d1573f;
     --ok: #3aa671;
   }
-  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
   html, body { height: 100%; margin: 0; }
   body {
     background: var(--bg);
@@ -39,9 +39,13 @@
     min-height: 40px;
     min-width: 40px;
     cursor: pointer;
+    transition: transform 0.08s ease-out, filter 0.08s ease-out;
   }
   button:disabled { opacity: 0.35; cursor: default; }
   button.primary { background: var(--accent); color: #24160a; border-color: var(--accent); font-weight: 600; }
+  /* instant press feedback on every tappable element — this fires the moment a finger goes
+     down, at the browser's compositor, so it shows up well before any JS/render has run */
+  button:not(:disabled):active { transform: scale(0.94); filter: brightness(1.15); }
   input[type=text] {
     font-family: inherit;
     color: var(--text);
@@ -164,12 +168,15 @@
     background-size: cover;
     background-position: center;
     overflow: visible;
+    transition: box-shadow 0.08s ease-out;
   }
   .board-slot[data-col="0"] { background-color: #1a3c5c; }
   .board-slot[data-col="1"] { background-color: #3a2c5c; }
   .board-slot[data-col="2"] { background-color: #1a4c3c; }
   .board-slot.can-drop { box-shadow: 0 0 0 3px var(--accent) inset; }
   .board-slot.blocked { filter: brightness(0.6); }
+  /* instant tap feedback — shows the moment a finger goes down, no waiting on JS/render */
+  .board-slot:active { box-shadow: 0 0 0 2px var(--accent) inset; }
   .slot-fish-img {
     position: absolute; inset: 2px; border-radius: 6px; background-size: cover; background-repeat: no-repeat;
     border: 1px solid rgba(0,0,0,0.4);
@@ -182,12 +189,14 @@
   .token {
     width: 20px; height: 20px; border-radius: 6px; border: 1px solid rgba(0,0,0,0.5);
     display: flex; align-items: center; justify-content: center; box-shadow: 1px 1px 3px rgba(0,0,0,0.4);
+    transition: transform 0.08s ease-out;
   }
   .token-young { background: #e0e440; }
   .token-egg { background: #d55943; }
   .token-school { background: #ae003f; }
   .token.selected { box-shadow: 0 0 0 2px #fff, 0 0 6px 2px #fff700; }
   .token img { width: 13px; height: 13px; }
+  .token:active { transform: scale(1.2); }
   .dive-row {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -243,7 +252,9 @@
     border: 2px solid transparent;
     background-color: #12293e;
     position: relative;
+    transition: transform 0.08s ease-out;
   }
+  .mini-card:active { transform: scale(0.95) translateY(-4px); }
   .mini-card-img {
     position: absolute; inset: 2px; border-radius: 6px;
     background-size: cover; background-repeat: no-repeat;
@@ -2391,6 +2402,17 @@ function renderFinalScore() {
   document.getElementById("final-score-card").innerHTML = `<h2>Final Scores</h2><table>${rows}</table>`;
 }
 
+function isDrawerOpen(id) {
+  const el = document.getElementById(id);
+  return !!el && el.classList.contains("open");
+}
+
+// the board/hand/queue/status are the only things visible during normal play, so those are
+// the only sections rebuilt on every tap; the drawers (lobby, chat, log) are comparatively
+// expensive to rebuild (full peer list, full chat/action log) and invisible unless open, so
+// they're refreshed only while actually open — openDrawer() also refreshes them on open.
+// This is what keeps taps feeling instant: a hand-card selection no longer pays the cost of
+// re-rendering a 100-entry action log and the whole lobby on every single tap.
 function render() {
   if (state.selections.length > 0) {
     const q0 = state.queue[0];
@@ -2401,11 +2423,10 @@ function render() {
   renderBoard();
   renderHand();
   renderQueuePanel();
-  renderOpponents();
   renderDiscard();
-  renderChat();
-  renderActionLog();
-  renderLobby();
+  if (isDrawerOpen("drawer-lobby")) { renderLobby(); renderOpponents(); }
+  if (isDrawerOpen("drawer-chat")) renderChat();
+  if (isDrawerOpen("drawer-log")) renderActionLog();
   renderFinalScore();
   renderIdentityPicker();
   renderShareTurnOverlay();
@@ -2873,6 +2894,10 @@ function wireEvents() {
 function openDrawer(id) {
   closeDrawers();
   document.getElementById(id).classList.add("open");
+  // these sections only render while their drawer is open (see render()), so refresh once now
+  if (id === "drawer-lobby") { renderLobby(); renderOpponents(); }
+  else if (id === "drawer-chat") renderChat();
+  else if (id === "drawer-log") renderActionLog();
 }
 function closeDrawers() {
   document.querySelectorAll(".drawer").forEach((d) => d.classList.remove("open"));
