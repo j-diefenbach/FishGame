@@ -56,6 +56,14 @@
     cursor: pointer;
     transition: transform 0.08s ease-out, filter 0.08s ease-out;
     will-change: transform;
+    /* buttons never need to themselves start a pan gesture — there's always non-button space
+       to grab for scrolling — so tell WebKit not to even consider that possibility for them.
+       touch-action:manipulation (set globally) still *permits* panning, which means WebKit has
+       to wait to see whether your finger moves before it'll commit to firing click; that wait
+       is worse here since .dive-btn sits inside two nested scrollable regions (the board strip
+       scrolls horizontally between players, each panel scrolls vertically). touch-action:none
+       removes the possibility entirely, so there's nothing left to disambiguate. */
+    touch-action: none;
   }
   button:disabled { opacity: 0.35; cursor: default; }
   button.primary { background: var(--accent); color: #24160a; border-color: var(--accent); font-weight: 600; }
@@ -224,6 +232,10 @@
     display: flex; align-items: center; justify-content: center; box-shadow: 1px 1px 3px rgba(0,0,0,0.4);
     transition: transform 0.08s ease-out;
     will-change: transform;
+    /* tokens are small, precise tap targets sitting on top of .board-slot (which stays
+       pannable) — panning can still start on the slot around/behind a token, so this doesn't
+       cost any scrollability, it just removes the tap-vs-pan wait specifically on the token */
+    touch-action: none;
   }
   .token-young { background: #e0e440; }
   .token-egg { background: #d55943; }
@@ -288,6 +300,10 @@
     position: relative;
     transition: transform 0.08s ease-out;
     will-change: transform;
+    /* the hand/discard strip's own background (the gap between cards, and its edge padding)
+       stays pannable, so the strip can still be scrolled — this just removes the tap-vs-pan
+       wait on the cards themselves, which is where almost every touch in this strip lands */
+    touch-action: none;
   }
   .mini-card:active, .mini-card.pressed { transform: scale(0.95) translateY(-4px); }
   .mini-card-img {
@@ -531,7 +547,7 @@
    1. CONSTANTS & CONFIG
    ========================================================= */
 
-const APP_VERSION = "1.0.2";
+const APP_VERSION = "1.0.3";
 const IMAGE_BASE = "public/images/";
 const ICON_BASE = "https://navarog.github.io/finsearch/static/media/";
 
