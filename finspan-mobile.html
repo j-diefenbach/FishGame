@@ -161,14 +161,19 @@
     overflow-x: auto;
     overflow-y: hidden;
     scroll-snap-type: x mandatory;
-    -webkit-overflow-scrolling: touch;
+    /* -webkit-overflow-scrolling:touch deliberately NOT set here (see .player-board-panel below
+       for why) */
   }
   .player-board-panel {
     flex: 0 0 100%;
     max-width: 100%;
     height: 100%;
     overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
+    /* -webkit-overflow-scrolling:touch forces the legacy native (UIScrollView-backed) momentum
+       scroller, which bypasses touch-action on descendants entirely — a touch-action:none token
+       or dive-btn nested in here could still drag-scroll the panel despite the CSS saying it
+       shouldn't be able to. iOS 13+ already gives plain overflow:auto momentum scrolling without
+       this flag, so it's just left off. */
     scroll-snap-align: start;
     box-sizing: border-box;
     padding: 8px;
@@ -287,7 +292,8 @@
     display: flex;
     gap: 8px;
     overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
+    /* see .player-board-panel comment above -- omitted so touch-action:none on .mini-card is
+       actually honored instead of being bypassed by the legacy momentum scroller */
   }
   /* shared by hand + discard strips: same size/ratio and nested image-div approach as the board's .board-slot/.slot-fish-img */
   .mini-card {
@@ -324,7 +330,7 @@
     display: flex;
     gap: 8px;
     overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
+    /* same reasoning as #hand-region above -- .mini-card children need touch-action:none honored */
   }
 
   /* ---- bottom nav ---- */
@@ -357,7 +363,7 @@
     background: var(--panel);
   }
   .drawer-header h2 { font-size: 15px; margin: 0; flex: 1; }
-  .drawer-body { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 10px; }
+  .drawer-body { flex: 1; overflow-y: auto; padding: 10px; }
   .drawer-body .row { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
   .peer-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
   .peer-row input { flex: 1; }
@@ -3043,8 +3049,21 @@ function wirePressFeedback() {
   document.body.addEventListener("pointerleave", clearPressed, { passive: true });
 }
 
+// Belt-and-suspenders for touch-action:none: some WebKit versions still let a touch that starts
+// on a touch-action:none element drag-scroll an ancestor (most commonly triggered by the legacy
+// -webkit-overflow-scrolling:touch momentum scroller, which is why that flag was removed from
+// every container above -- but this listener stays as a hard backstop even without it). A tap
+// itself never needs touchmove, so unconditionally cancelling it for these elements costs nothing.
+function wireNoScrollBackstop() {
+  const NO_SCROLL = ".mini-card, .token, .dive-btn, button";
+  document.body.addEventListener("touchmove", (e) => {
+    if (e.target.closest(NO_SCROLL)) e.preventDefault();
+  }, { passive: false });
+}
+
 function wireEvents() {
   wirePressFeedback();
+  wireNoScrollBackstop();
   wireDevTiming();
   document.getElementById("clear-dev-timing-btn").addEventListener("click", () => {
     devTiming.log = [];
