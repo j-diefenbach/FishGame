@@ -467,6 +467,13 @@
       <div id="opponents-body"></div>
 
       <div id="app-version" style="text-align:center;font-size:11px;color:var(--text-dim);margin-top:24px;padding-bottom:8px;"></div>
+
+      <div class="row" style="margin-top:8px;">
+        <h2 style="font-size:15px;margin:0;flex:1;">Dev Timing Log</h2>
+        <button id="clear-dev-timing-btn">Clear</button>
+      </div>
+      <p style="font-size:11px;color:var(--text-dim);margin:0 0 8px;">Measures real touch-event timing on this device — how long between finger-down, finger-up, the browser's click, and this page's own render() work. Useful for tracking down tap lag on an actual phone.</p>
+      <div id="dev-timing-list" style="font-family:monospace;font-size:11px;display:flex;flex-direction:column;gap:2px;max-height:240px;overflow-y:auto;"></div>
     </div>
   </div>
 
@@ -2858,6 +2865,66 @@ function clearPressed() {
   document.querySelectorAll(".pressed").forEach((el) => el.classList.remove("pressed"));
 }
 
+/* =========================================================
+   DEV TIMING LOG — on-device instrumentation for tap latency.
+   Lives in the Lobby drawer (below the version number). Real touch timing varies a lot by
+   browser/OS in ways that can't be reproduced from a desktop test runner, so this measures
+   it live on whatever device is actually running the page: how long between a finger landing
+   (pointerdown), lifting (pointerup), the browser's synthesized click, and this page's own
+   render() work — so a slow tap can be attributed to "the browser's gesture handling" vs
+   "our own code" instead of guessed at.
+   ========================================================= */
+const devTiming = { log: [], lastPointerDown: null };
+
+function devTimingPush(label, ms) {
+  const at = new Date();
+  const stamp = String(at.getMinutes()).padStart(2, "0") + ":" + String(at.getSeconds()).padStart(2, "0") + "." + String(at.getMilliseconds()).padStart(3, "0");
+  devTiming.log.unshift({ stamp, label, ms: ms.toFixed(1) });
+  if (devTiming.log.length > 50) devTiming.log.length = 50;
+  if (isDrawerOpen("drawer-lobby")) renderDevTimingLog();
+}
+
+function renderDevTimingLog() {
+  const el = document.getElementById("dev-timing-list");
+  if (!el) return;
+  el.innerHTML = devTiming.log.map((e) =>
+    `<div>${e.stamp} <strong>${escapeHtml(e.label)}</strong>: ${e.ms}ms</div>`
+  ).join("") || "<div style='color:var(--text-dim);'>No taps recorded yet — interact with the game, then check back here.</div>";
+}
+
+function wireDevTiming() {
+  // capture phase so this always sees the event first, regardless of what else is listening
+  document.body.addEventListener("pointerdown", (e) => {
+    devTiming.lastPointerDown = { time: performance.now() };
+  }, { capture: true, passive: true });
+  document.body.addEventListener("pointerup", () => {
+    if (!devTiming.lastPointerDown) return;
+    devTimingPush("pointerdown → pointerup", performance.now() - devTiming.lastPointerDown.time);
+  }, { capture: true, passive: true });
+  document.body.addEventListener("click", () => {
+    if (!devTiming.lastPointerDown) return;
+    const clickTime = performance.now();
+    devTimingPush("pointerdown → click", clickTime - devTiming.lastPointerDown.time);
+    devTiming.lastPointerDown = null;
+    // by the next animation frame, any synchronous render() this click triggered has already
+    // run and committed its DOM changes — this is roughly "click handled -> ready to paint"
+    requestAnimationFrame(() => {
+      devTimingPush("click → next frame", performance.now() - clickTime);
+    });
+  }, { capture: true });
+
+  // wrap render() itself so its own execution cost is visible separately from browser/gesture
+  // timing above — if THIS number is small but the tap still feels slow, the delay is in the
+  // browser's touch handling, not this page's code
+  const realRender = render;
+  render = function () {
+    const t0 = performance.now();
+    realRender();
+    const dt = performance.now() - t0;
+    if (dt > 0.2) devTimingPush("render()", dt);
+  };
+}
+
 function wirePressFeedback() {
   const PRESSABLE = ".board-slot, .mini-card, .dive-btn, .token, button";
   document.body.addEventListener("pointerdown", (e) => {
@@ -2879,6 +2946,11 @@ function wirePressFeedback() {
 
 function wireEvents() {
   wirePressFeedback();
+  wireDevTiming();
+  document.getElementById("clear-dev-timing-btn").addEventListener("click", () => {
+    devTiming.log = [];
+    renderDevTimingLog();
+  });
   document.getElementById("board-wrap").addEventListener("click", (e) => {
     // multiple players' boards are visible side by side now — only the panel that's
     // actually yours is ever interactive, regardless of which one you've scrolled to
@@ -3000,7 +3072,7 @@ function openDrawer(id) {
   closeDrawers();
   document.getElementById(id).classList.add("open");
   // these sections only render while their drawer is open (see render()), so refresh once now
-  if (id === "drawer-lobby") { renderLobby(); renderOpponents(); }
+  if (id === "drawer-lobby") { renderLobby(); renderOpponents(); renderDevTimingLog(); }
   else if (id === "drawer-chat") renderChat();
   else if (id === "drawer-log") renderActionLog();
 }
