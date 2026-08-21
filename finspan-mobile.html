@@ -74,20 +74,15 @@
     gap: 8px;
     padding: 8px 10px;
     background: var(--panel);
-    border-bottom: 1px solid var(--border);
+    border-bottom: 4px solid var(--border);
+    transition: border-color 0.15s ease-out;
     flex: 0 0 auto;
     font-size: 13px;
   }
+  /* "is it my turn" collapses to a single colour highlight along the bottom edge of the bar,
+     instead of a text pill — each player's own board panel carries their name + turn state */
+  #status-bar.my-turn-glow { border-bottom-color: var(--accent); }
   .status-row1 { display: flex; align-items: center; gap: 8px; }
-  #status-bar .turn-pill {
-    background: var(--panel-2);
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    padding: 4px 10px;
-    font-weight: 600;
-    flex: 0 0 auto;
-  }
-  #status-bar .turn-pill.my-turn { background: var(--accent); color: #24160a; }
   #status-bar .round-bonuses { display: flex; gap: 6px; }
   #status-bar .round-bonuses.hidden { display: none; }
   #status-bar .round-bonus-chip {
@@ -110,12 +105,6 @@
     font-size: 11px; transition: transform 0.2s;
   }
   #toggle-bonuses-btn.collapsed { transform: rotate(180deg); }
-  #view-player-btn {
-    padding: 6px 10px; min-width: 32px; min-height: 32px; flex: 0 0 auto;
-    font-size: 11px; font-weight: 600; max-width: 90px; overflow: hidden;
-    text-overflow: ellipsis; white-space: nowrap;
-  }
-  #view-player-btn.viewing-other { background: var(--accent); color: #24160a; border-color: var(--accent); }
 
   /* ---- turn (action) dots ---- */
   #turn-dots-row {
@@ -134,18 +123,45 @@
   .turn-dot.act-green { background: var(--green); border-color: var(--green); }
   .turn-dot.next-up { box-shadow: 0 0 0 2px var(--accent); }
 
-  .viewing-banner {
-    background: var(--accent); color: #24160a; font-weight: 700; font-size: 12px;
-    text-align: center; padding: 6px; border-radius: 8px; margin-bottom: 4px;
-  }
-
   /* ---- board ---- */
+  /* every player's board is visible as its own full-width panel; #board-wrap is the
+     horizontal scroller (snaps between panels), each panel scrolls vertically on its own */
   #board-region {
     flex: 1 1 auto;
-    overflow-y: auto;
-    padding: 8px;
+    overflow: hidden;
+    padding: 0;
   }
-  .board-wrap { display: flex; flex-direction: column; gap: 4px; }
+  .board-wrap {
+    display: flex;
+    height: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+  }
+  .player-board-panel {
+    flex: 0 0 100%;
+    max-width: 100%;
+    height: 100%;
+    overflow-y: auto;
+    scroll-snap-align: start;
+    box-sizing: border-box;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    border-top: 4px solid transparent;
+    transition: border-color 0.15s ease-out;
+  }
+  .player-board-panel.their-turn { border-top-color: var(--accent); }
+  .panel-header {
+    display: flex; align-items: center; gap: 6px;
+    font-weight: 700; font-size: 14px; padding: 2px 2px 4px;
+  }
+  .panel-you-tag {
+    background: var(--accent); color: #24160a; font-size: 10px; font-weight: 800;
+    border-radius: 999px; padding: 2px 8px;
+  }
   .zone-label-row { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-dim); padding: 2px 4px; }
   .zone-reward-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-bottom: 2px; }
   .zone-reward-cell {
@@ -362,7 +378,7 @@
 
   .hidden { display: none !important; }
 
-  body.not-my-turn #board-region, body.not-my-turn #hand-region { opacity: 0.55; }
+  body.not-my-turn #hand-region { opacity: 0.55; }
   body.not-my-turn .board-slot, body.not-my-turn .mini-card, body.not-my-turn .dive-btn { pointer-events: none; }
 </style>
 </head>
@@ -372,9 +388,7 @@
   <div id="status-bar">
     <div class="round-bonuses" id="round-bonuses-strip"></div>
     <div class="status-row1">
-      <span class="turn-pill" id="turn-pill">Setting up...</span>
       <div id="turn-dots-row"></div>
-      <button id="view-player-btn" title="View another player's board">You</button>
       <button id="toggle-bonuses-btn" title="Show/hide round bonuses">&#9650;</button>
     </div>
   </div>
@@ -1553,24 +1567,11 @@ function newPlayerState(id, name, peerId) {
 }
 
 function myPlayer() { return state.players[state.myPlayerId]; }
-function isViewingSelf() { return !state.ui.viewingPlayerId || state.ui.viewingPlayerId === state.myPlayerId; }
-function viewedPlayer() { return isViewingSelf() ? myPlayer() : state.players[state.ui.viewingPlayerId]; }
 function playerIsDoneThisRound(player) {
   if (!player) return false;
   if (state.currentRound >= 4) return player.finishedGame === true;
   const total = player.uses.playFish + player.uses.blueSite + player.uses.purpleSite + player.uses.greenSite;
   return total >= 6;
-}
-
-// cycles the read-only viewing perspective through every player in turn order, then back to self.
-// purely a local display toggle — it never changes whose turn it actually is or what anyone can act on.
-function cycleViewedPlayer() {
-  if (!state.gameStarted || state.playerOrder.length <= 1) return;
-  const current = state.ui.viewingPlayerId || state.myPlayerId;
-  const idx = state.playerOrder.indexOf(current);
-  const next = state.playerOrder[(idx + 1) % state.playerOrder.length];
-  state.ui.viewingPlayerId = (next === state.myPlayerId) ? null : next;
-  render();
 }
 
 const state = {
@@ -1598,7 +1599,7 @@ const state = {
     conns: {}, connectionStatus: {}, peerNames: {}, chatLog: [], isHost: false,
   },
   ui: {
-    activeDrawer: null, bonusesVisible: true, discardVisible: false, viewingPlayerId: null,
+    activeDrawer: null, bonusesVisible: true, discardVisible: false,
     asyncPlayerInputs: ["You", "Friend"], showShareOverlay: false, shareOverlayLink: "", shareOverlayStatus: "",
   },
   actedThisTurn: false,
@@ -1685,7 +1686,6 @@ function setupGame(playerInfos, roundBonuses, deckOrder, gameId) {
   state.endGameUsedSlots = {};
   state.history = [];
   state.actedThisTurn = false;
-  state.ui.viewingPlayerId = null;
   state.ui.showShareOverlay = false;
   pushLog("Game started. " + state.players[state.activePlayerId].name + "'s turn.");
   saveHistorySnapshot(); // seed the undo stack with the freshly-initialized state so the first turn can be undone
@@ -2051,7 +2051,7 @@ const DIVE_SITE_BONUSES = {
 
 function slotIsValidTarget(row, col) {
   const me = myPlayer();
-  if (!me || !isMyTurn() || !isViewingSelf()) return false;
+  if (!me || !isMyTurn()) return false;
   const q0 = state.queue[0];
   if (q0) {
     switch (q0.type) {
@@ -2086,16 +2086,15 @@ function slotIsValidTarget(row, col) {
   return false;
 }
 
-function renderSlot(row, col) {
-  const me = viewedPlayer();
-  const b = me.board;
+function renderSlot(row, col, player, isOwnPanel) {
+  const b = player.board;
   const fish = b.fish[row][col];
-  const valid = slotIsValidTarget(row, col);
+  const valid = isOwnPanel && slotIsValidTarget(row, col);
   const tucked = b.tucked[row][col];
-  const youngSelectedCount = state.selections.filter((s) => s.type === "young" && s.row === row && s.col === col).length;
-  const eggSelected = state.selections.some((s) => s.type === "egg" && s.row === row && s.col === col);
-  const schoolSelected = state.selections.some((s) => s.type === "school" && s.row === row && s.col === col);
-  const isMoveSrc = state.queue[0] && state.queue[0].type === QUEUE.MOVE && state.selections[0] && state.selections[0].row === row && state.selections[0].col === col;
+  const youngSelectedCount = isOwnPanel ? state.selections.filter((s) => s.type === "young" && s.row === row && s.col === col).length : 0;
+  const eggSelected = isOwnPanel && state.selections.some((s) => s.type === "egg" && s.row === row && s.col === col);
+  const schoolSelected = isOwnPanel && state.selections.some((s) => s.type === "school" && s.row === row && s.col === col);
+  const isMoveSrc = isOwnPanel && state.queue[0] && state.queue[0].type === QUEUE.MOVE && state.selections[0] && state.selections[0].row === row && state.selections[0].col === col;
 
   let tokensHtml = "";
   for (let i = 0; i < b.young[row][col]; i++) {
@@ -2117,24 +2116,25 @@ function renderSlot(row, col) {
   </div>`;
 }
 
-function renderBoard() {
-  const me = viewedPlayer();
-  if (!me) { document.getElementById("board-wrap").innerHTML = ""; return; }
-  const total = me.uses.playFish + me.uses.blueSite + me.uses.purpleSite + me.uses.greenSite;
-  const canActivate = isViewingSelf() && isMyTurn() && state.queue.length === 0 && total < 6;
+// one player's full board (dive row, zones, grid) — used to build one panel of the
+// horizontally swipeable board-wrap strip, one panel per player in turn order
+function renderBoardPanel(player, isOwnPanel) {
+  if (!player) return "";
+  const total = player.uses.playFish + player.uses.blueSite + player.uses.purpleSite + player.uses.greenSite;
+  const canActivate = isOwnPanel && isMyTurn() && state.queue.length === 0 && total < 6;
   const countBadge = (n) => n > 0 ? `<span class="use-count">&times;${n}</span>` : "";
 
   const diveRow = `<div class="dive-row">
-    <button class="dive-btn" data-divesite="0" ${canActivate ? "" : "disabled"}><img src="${ICONS.flipperBlue}"/>${countBadge(me.uses.blueSite)}</button>
-    <button class="dive-btn" data-divesite="1" ${canActivate ? "" : "disabled"}><img src="${ICONS.flipperPurple}"/>${countBadge(me.uses.purpleSite)}</button>
-    <button class="dive-btn" data-divesite="2" ${canActivate ? "" : "disabled"}><img src="${ICONS.flipperGreen}"/>${countBadge(me.uses.greenSite)}</button>
+    <button class="dive-btn" data-divesite="0" ${canActivate ? "" : "disabled"}><img src="${ICONS.flipperBlue}"/>${countBadge(player.uses.blueSite)}</button>
+    <button class="dive-btn" data-divesite="1" ${canActivate ? "" : "disabled"}><img src="${ICONS.flipperPurple}"/>${countBadge(player.uses.purpleSite)}</button>
+    <button class="dive-btn" data-divesite="2" ${canActivate ? "" : "disabled"}><img src="${ICONS.flipperGreen}"/>${countBadge(player.uses.greenSite)}</button>
   </div>`;
 
   function zoneLabel(icon, text) {
     return `<div class="zone-label-row"><img src="${icon}" style="width:14px;height:14px;" class="icon"/> ${text}</div>`;
   }
   function gridRows(rows) {
-    return `<div class="board-grid">${rows.map((r) => [0, 1, 2].map((c) => renderSlot(r, c)).join("")).join("")}</div>`;
+    return `<div class="board-grid">${rows.map((r) => [0, 1, 2].map((c) => renderSlot(r, c, player, isOwnPanel)).join("")).join("")}</div>`;
   }
   const ZONE_ROW_RANGES = [ZONE_ROWS.Sun, ZONE_ROWS.Dusk, ZONE_ROWS.Night];
   // shows the reward each dive site (blue/purple/green) grants at this zone, above that zone's slots
@@ -2142,7 +2142,7 @@ function renderBoard() {
   function rewardIconRow(zoneIdx) {
     const rows = ZONE_ROW_RANGES[zoneIdx];
     const cells = ["blue", "purple", "green"].map((site, col) => {
-      const hasFish = rows.some((r) => !!me.board.fish[r][col]);
+      const hasFish = rows.some((r) => !!player.board.fish[r][col]);
       const token = DIVE_SITE_BONUSES[site][zoneIdx];
       const icon = ICONS[normalizeRewardToken(token)] || ICONS[token] || ICONS.drawCard;
       return `<div class="zone-reward-cell${hasFish ? "" : " dim"}"><img src="${icon}" class="icon"/></div>`;
@@ -2151,10 +2151,10 @@ function renderBoard() {
   }
   // shows the once-per-round "first dive" bonus for each site, only while still available this round
   function firstDiveRow() {
-    const anyAvailable = ["blue", "purple", "green"].some((site) => me.uses[site + "Site"] <= 0);
+    const anyAvailable = ["blue", "purple", "green"].some((site) => player.uses[site + "Site"] <= 0);
     if (!anyAvailable) return "";
     const cells = ["blue", "purple", "green"].map((site) => {
-      const available = me.uses[site + "Site"] <= 0;
+      const available = player.uses[site + "Site"] <= 0;
       const token = DIVE_SITE_BONUSES[site][3];
       const icon = ICONS[normalizeRewardToken(token)] || ICONS[token] || ICONS.drawCard;
       return `<div class="zone-reward-cell${available ? "" : " dim"}"><img src="${icon}" class="icon"/></div>`;
@@ -2162,29 +2162,53 @@ function renderBoard() {
     return zoneLabel(ICONS.wave, "First dive bonus") + `<div class="zone-reward-row">${cells}</div>`;
   }
 
-  const viewingBanner = isViewingSelf() ? "" :
-    `<div class="viewing-banner">Viewing ${escapeHtml(me.name)}'s board — read only</div>`;
+  const isTheirTurn = state.gameStarted && !state.gameOver && player.id === state.activePlayerId;
+  const header = `<div class="panel-header"><span>${escapeHtml(player.name)}</span>${isOwnPanel ? '<span class="panel-you-tag">You</span>' : ""}</div>`;
 
-  document.getElementById("board-wrap").innerHTML =
-    viewingBanner +
-    diveRow +
-    zoneLabel(ICONS.sun, "Sunlight") + rewardIconRow(0) + gridRows([0, 1, 2]) +
-    zoneLabel(ICONS.dusk, "Twilight") + rewardIconRow(1) + gridRows([3]) +
-    zoneLabel(ICONS.night, "Midnight") + rewardIconRow(2) + gridRows([4, 5]) +
-    firstDiveRow();
+  return `<div class="player-board-panel${isTheirTurn ? " their-turn" : ""}" data-player="${player.id}">
+    ${header}
+    ${diveRow}
+    ${zoneLabel(ICONS.sun, "Sunlight")}${rewardIconRow(0)}${gridRows([0, 1, 2])}
+    ${zoneLabel(ICONS.dusk, "Twilight")}${rewardIconRow(1)}${gridRows([3])}
+    ${zoneLabel(ICONS.night, "Midnight")}${rewardIconRow(2)}${gridRows([4, 5])}
+    ${firstDiveRow()}
+  </div>`;
+}
+
+// renders one panel per player, side by side, in turn order — the strip scrolls/snaps
+// horizontally (see #board-wrap CSS) so swiping left/right moves between players' boards
+function renderBoard() {
+  const container = document.getElementById("board-wrap");
+  if (!state.gameStarted) { container.innerHTML = ""; return; }
+  const prevScrollLeft = container.scrollLeft;
+  // each panel also scrolls independently on the vertical axis (a board is taller than the
+  // viewport) — rebuilding innerHTML destroys and recreates every panel node, which would
+  // otherwise silently reset both axes back to (0,0) on every single tap
+  const prevScrollTops = {};
+  container.querySelectorAll(".player-board-panel").forEach((panel) => {
+    prevScrollTops[panel.dataset.player] = panel.scrollTop;
+  });
+  container.innerHTML = state.playerOrder
+    .map((pid) => renderBoardPanel(state.players[pid], pid === state.myPlayerId))
+    .join("");
+  container.scrollLeft = prevScrollLeft;
+  container.querySelectorAll(".player-board-panel").forEach((panel) => {
+    const prevTop = prevScrollTops[panel.dataset.player];
+    if (prevTop) panel.scrollTop = prevTop;
+  });
 }
 
 function renderHand() {
-  const me = viewedPlayer();
+  const me = myPlayer();
   const el = document.getElementById("hand-region");
   if (!me) { el.innerHTML = ""; return; }
   const q0 = state.queue[0];
-  const pickableForCost = isViewingSelf() && q0 && q0.type === QUEUE.COST && q0.cost.includes("card");
-  const pickableForFromHand = isViewingSelf() && q0 && q0.type === QUEUE.FISH_FROM_HAND;
-  const pickableForPlay = isViewingSelf() && !q0;
+  const pickableForCost = q0 && q0.type === QUEUE.COST && q0.cost.includes("card");
+  const pickableForFromHand = q0 && q0.type === QUEUE.FISH_FROM_HAND;
+  const pickableForPlay = !q0;
   el.innerHTML = me.hand.map((card) => {
     const affordable = pickableForPlay ? canAffordCardFromHand(card, me) : true;
-    const selected = isViewingSelf() && (card.instanceId === state.selectedInstanceId || state.selections.some((s) => s.type === "card" && s.instanceId === card.instanceId));
+    const selected = card.instanceId === state.selectedInstanceId || state.selections.some((s) => s.type === "card" && s.instanceId === card.instanceId);
     const clickable = isMyTurn() && (pickableForCost || pickableForFromHand || pickableForPlay);
     return `<div class="mini-card${selected ? " selected" : ""}${(!affordable && pickableForPlay) ? " unaffordable" : ""}${pickableForFromHand ? " fromhand-target" : ""}"
       data-instance="${card.instanceId}" style="${clickable ? "" : "pointer-events:none;"}">
@@ -2256,19 +2280,11 @@ function renderQueuePanel() {
 }
 
 function renderStatusBar() {
-  const pill = document.getElementById("turn-pill");
-  if (!state.gameStarted) {
-    pill.textContent = "Lobby";
-    pill.classList.remove("my-turn");
-  } else if (state.gameOver) {
-    pill.textContent = "Game Over";
-    pill.classList.remove("my-turn");
-  } else {
-    const active = state.players[state.activePlayerId];
-    const mine = isMyTurn();
-    pill.textContent = mine ? "Your turn" : ((active ? active.name : "?") + "'s turn");
-    pill.classList.toggle("my-turn", mine);
-  }
+  // the "your turn" indicator is a single colour highlight along the bottom edge of the
+  // status bar rather than text — each player's own board panel already carries their name
+  // and their own highlight when it's their turn, so this one is purely "is it MY turn".
+  document.getElementById("status-bar").classList.toggle("my-turn-glow", state.gameStarted && !state.gameOver && isMyTurn());
+
   const strip = document.getElementById("round-bonuses-strip");
   strip.classList.toggle("hidden", !state.ui.bonusesVisible);
   strip.innerHTML = [0, 1, 2].map((i) => {
@@ -2282,22 +2298,13 @@ function renderStatusBar() {
   toggleBtn.classList.toggle("collapsed", !state.ui.bonusesVisible);
 
   document.getElementById("undo-btn").disabled = !isMyTurn() || state.history.length < 2;
-
-  const viewBtn = document.getElementById("view-player-btn");
-  if (!state.gameStarted || state.playerOrder.length <= 1) {
-    viewBtn.classList.add("hidden");
-  } else {
-    viewBtn.classList.remove("hidden");
-    viewBtn.textContent = isViewingSelf() ? "You" : viewedPlayer().name;
-    viewBtn.classList.toggle("viewing-other", !isViewingSelf());
-  }
 }
 
 const ACTION_DOT_ICON = { fish: ICONS.fishFromHand, blue: ICONS.flipperBlue, purple: ICONS.flipperPurple, green: ICONS.flipperGreen };
 
 function renderTurnDots() {
   const el = document.getElementById("turn-dots-row");
-  const me = viewedPlayer();
+  const me = myPlayer();
   if (!me || !state.gameStarted) { el.innerHTML = ""; return; }
   const nextIdx = me.actionsThisRound.length;
   el.innerHTML = Array.from({ length: 6 }, (_, i) => {
@@ -2306,7 +2313,7 @@ function renderTurnDots() {
       const label = act.type === "fish" ? ("Played " + (act.label || "a fish")) : (act.type[0].toUpperCase() + act.type.slice(1) + " dive site activated");
       return `<div class="turn-dot act-${act.type}" title="${escapeHtml(label)}"><img src="${ACTION_DOT_ICON[act.type]}"/></div>`;
     }
-    const upcoming = i === nextIdx && isMyTurn() && isViewingSelf();
+    const upcoming = i === nextIdx && isMyTurn();
     return `<div class="turn-dot empty${upcoming ? " next-up" : ""}" title="Action ${i + 1} of 6 — not yet used"></div>`;
   }).join("");
 }
@@ -2332,14 +2339,14 @@ function renderOpponents() {
 }
 
 function renderDiscard() {
-  const me = viewedPlayer();
+  const me = myPlayer();
   const el = document.getElementById("discard-region");
   el.classList.toggle("hidden", !state.ui.discardVisible);
   document.getElementById("nav-discard").classList.toggle("active", state.ui.discardVisible);
   if (!me) { el.innerHTML = ""; return; }
   if (!state.ui.discardVisible) return;
   const q0 = state.queue[0];
-  const pickable = isViewingSelf() && isMyTurn() && q0 && q0.type === QUEUE.RECYCLE;
+  const pickable = isMyTurn() && q0 && q0.type === QUEUE.RECYCLE;
   el.innerHTML = me.discard.map((c) => `<div class="mini-card" data-instance="${c.instanceId}" style="${pickable ? "" : "pointer-events:none;opacity:0.6;"}">
       <div class="mini-card-img" style="${cardImageStyle(c)}"></div>
     </div>`).join("") || "<p style='font-size:12px;color:var(--text-dim);'>Discard pile is empty</p>";
@@ -2430,7 +2437,7 @@ function render() {
   renderFinalScore();
   renderIdentityPicker();
   renderShareTurnOverlay();
-  document.body.classList.toggle("not-my-turn", state.gameStarted && !state.gameOver && (!isMyTurn() || !isViewingSelf()));
+  document.body.classList.toggle("not-my-turn", state.gameStarted && !state.gameOver && !isMyTurn());
 }
 
 /* =========================================================
@@ -2778,6 +2785,10 @@ function handleDoneTap() {
 
 function wireEvents() {
   document.getElementById("board-wrap").addEventListener("click", (e) => {
+    // multiple players' boards are visible side by side now — only the panel that's
+    // actually yours is ever interactive, regardless of which one you've scrolled to
+    const panel = e.target.closest("[data-player]");
+    if (!panel || panel.dataset.player !== state.myPlayerId) return;
     const diveBtn = e.target.closest(".dive-btn");
     if (diveBtn) { activateDiveSite(parseInt(diveBtn.dataset.divesite, 10)); return; }
     const el = e.target.closest("[data-target]");
@@ -2808,7 +2819,6 @@ function wireEvents() {
     state.ui.bonusesVisible = !state.ui.bonusesVisible;
     render();
   });
-  document.getElementById("view-player-btn").addEventListener("click", cycleViewedPlayer);
 
   document.getElementById("discard-region").addEventListener("click", (e) => {
     const el = e.target.closest("[data-instance]");
@@ -3095,7 +3105,6 @@ function applyShareableState(cs) {
   state.selectedInstanceId = null;
   state.actedThisTurn = false;
   state.history = [];
-  state.ui.viewingPlayerId = null;
   state.ui.showShareOverlay = false;
 }
 
