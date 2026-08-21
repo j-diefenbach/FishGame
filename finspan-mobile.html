@@ -215,6 +215,9 @@
     background-position: center;
     overflow: visible;
     transition: box-shadow 0.08s ease-out;
+    /* tap-only, no pan — a touch starting on a slot activates it immediately on pointerdown
+       instead of waiting through WebKit's tap-vs-scroll disambiguation */
+    touch-action: none;
   }
   .board-slot[data-col="0"] { background-color: #1a3c5c; }
   .board-slot[data-col="1"] { background-color: #3a2c5c; }
@@ -292,8 +295,6 @@
     display: flex;
     gap: 8px;
     overflow-x: auto;
-    /* see .player-board-panel comment above -- omitted so touch-action:none on .mini-card is
-       actually honored instead of being bypassed by the legacy momentum scroller */
   }
   /* shared by hand + discard strips: same size/ratio and nested image-div approach as the board's .board-slot/.slot-fish-img */
   .mini-card {
@@ -306,10 +307,10 @@
     position: relative;
     transition: transform 0.08s ease-out;
     will-change: transform;
-    /* the hand/discard strip's own background (the gap between cards, and its edge padding)
-       stays pannable, so the strip can still be scrolled — this just removes the tap-vs-pan
-       wait on the cards themselves, which is where almost every touch in this strip lands */
-    touch-action: none;
+    /* touch-action:manipulation (inherited from the global rule) on purpose — cards need to
+       stay draggable themselves so the hand strip can be scrolled by dragging directly on a
+       card, not just the gaps between them; click is the correct event here so the browser can
+       still resolve tap-vs-pan and suppress the click when a touch turns into a scroll */
   }
   .mini-card:active, .mini-card.pressed { transform: scale(0.95) translateY(-4px); }
   .mini-card-img {
@@ -321,16 +322,18 @@
   .mini-card.unaffordable { filter: grayscale(70%) brightness(0.6); }
   .mini-card.fromhand-target { box-shadow: 0 0 0 3px var(--accent); }
 
-  /* ---- discard strip (toggled above the hand) ---- */
-  #discard-region {
+  /* discard-pile cards, appended after the hand cards in the same #hand-region strip -- a
+     different background colour (echoing the old separate discard strip's dark red) is the only
+     thing that marks them apart, since they're no longer in their own section of the screen */
+  .mini-card.discard-card { background-color: #3a1414; border-color: #6b2a2a; }
+  .hand-discard-label {
     flex: 0 0 auto;
-    background: #2a1414;
-    border-top: 1px solid var(--border);
-    padding: 8px;
-    display: flex;
-    gap: 8px;
-    overflow-x: auto;
-    /* same reasoning as #hand-region above -- .mini-card children need touch-action:none honored */
+    display: flex; align-items: center;
+    writing-mode: vertical-rl;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+    color: var(--text-dim);
+    border-left: 1px solid var(--border);
+    padding-left: 8px;
   }
 
   /* ---- bottom nav ---- */
@@ -350,7 +353,6 @@
     padding: 6px 2px;
   }
   #bottom-nav button:last-child { border-right: none; }
-  #bottom-nav button.active { background: var(--panel-2); color: var(--accent); }
 
   /* ---- drawers (full screen overlay panels) ---- */
   .drawer {
@@ -447,12 +449,10 @@
     <div class="actions" id="queue-actions"></div>
   </div>
 
-  <div id="discard-region" class="hidden"></div>
   <div id="hand-region"></div>
 
   <div id="bottom-nav">
     <button data-drawer="lobby" id="nav-lobby">Lobby</button>
-    <button id="nav-discard">Discard</button>
     <button data-drawer="chat" id="nav-chat">Chat</button>
     <button data-drawer="log" id="nav-log">Log</button>
     <button id="undo-btn" title="Undo">&#8630; Undo</button>
@@ -553,7 +553,7 @@
    1. CONSTANTS & CONFIG
    ========================================================= */
 
-const APP_VERSION = "1.0.5";
+const APP_VERSION = "1.0.6";
 const IMAGE_BASE = "public/images/";
 const ICON_BASE = "https://navarog.github.io/finsearch/static/media/";
 
@@ -596,6 +596,11 @@ const SPRITE_SHEETS = {
   "BC2E86AAFA36E672773B6CF40FADBED13567014B": { cols: 4, rows: 5 },
 };
 const ROUND_BONUS_SHEET = "BC2E86AAFA36E672773B6CF40FADBED13567014B";
+
+// the source sprite sheets have a thin gutter/border around each cell, so mapping a cell
+// exactly to its 1/cols x 1/rows slice (zoom 1.0) leaves a sliver of the neighboring cell's
+// edge visible along the border of the div. Zooming in slightly crops that bleed away.
+const CARD_ART_ZOOM = 1.08;
 
 // original Steam Workshop hosting for each sheet, used as a backup source if the local
 // copy under IMAGE_BASE isn't available (e.g. the images/ folder wasn't deployed alongside
@@ -1651,7 +1656,7 @@ const state = {
     conns: {}, connectionStatus: {}, peerNames: {}, chatLog: [], isHost: false,
   },
   ui: {
-    activeDrawer: null, bonusesVisible: true, discardVisible: false,
+    activeDrawer: null, bonusesVisible: true,
     asyncPlayerInputs: ["You", "Friend"], showShareOverlay: false, shareOverlayLink: "", shareOverlayStatus: "",
   },
   actedThisTurn: false,
@@ -1748,15 +1753,26 @@ function setupGame(playerInfos, roundBonuses, deckOrder, gameId) {
    5. RULES / PURE HELPERS
    ========================================================= */
 
+// background-size/background-position pair for one axis of a sprite-sheet cell, zoomed in by
+// `zoom` around the cell's own center (not the sheet's) so the crop stays anchored on that
+// cell's art no matter how far zoomed -- this is what lets CARD_ART_ZOOM crop away the sliver
+// of neighboring-cell bleed without needing to know the sheet's exact gutter width.
+function spriteAxis(index, count, zoom) {
+  if (count <= 1) return { size: 100 * zoom, pos: 0 };
+  const size = count * zoom * 100;
+  const pos = (100 * (zoom * (index + 0.5) - 0.5)) / (count * zoom - 1);
+  return { size, pos };
+}
+
 function cardImageStyle(card) {
   if (!card) return "";
   if (!card.sheet) return ""; // defensive fallback: no sheet, no card art to show (game-end bonus uses gameEndBadgeHtml() instead, not an image)
   probeSheetAvailability(card.sheet);
   const sheet = SPRITE_SHEETS[card.sheet] || { cols: 4, rows: 7 };
   const url = sheetImageUrl(card.sheet);
-  const xPct = sheet.cols > 1 ? (card.col / (sheet.cols - 1)) * 100 : 0;
-  const yPct = sheet.rows > 1 ? (card.row / (sheet.rows - 1)) * 100 : 0;
-  return `background-image:url('${url}');background-size:${sheet.cols * 100}% ${sheet.rows * 100}%;background-position:${xPct}% ${yPct}%;`;
+  const x = spriteAxis(card.col, sheet.cols, CARD_ART_ZOOM);
+  const y = spriteAxis(card.row, sheet.rows, CARD_ART_ZOOM);
+  return `background-image:url('${url}');background-size:${x.size}% ${y.size}%;background-position:${x.pos}% ${y.pos}%;`;
 }
 
 function roundBonusCardStyle(idx) {
@@ -1764,9 +1780,9 @@ function roundBonusCardStyle(idx) {
   probeSheetAvailability(ROUND_BONUS_SHEET);
   const row = Math.floor(idx / sheet.cols), col = idx % sheet.cols;
   const url = sheetImageUrl(ROUND_BONUS_SHEET);
-  const xPct = sheet.cols > 1 ? (col / (sheet.cols - 1)) * 100 : 0;
-  const yPct = sheet.rows > 1 ? (row / (sheet.rows - 1)) * 100 : 0;
-  return `background-image:url('${url}');background-size:${sheet.cols * 100}% ${sheet.rows * 100}%;background-position:${xPct}% ${yPct}%;`;
+  const x = spriteAxis(col, sheet.cols, CARD_ART_ZOOM);
+  const y = spriteAxis(row, sheet.rows, CARD_ART_ZOOM);
+  return `background-image:url('${url}');background-size:${x.size}% ${y.size}%;background-position:${x.pos}% ${y.pos}%;`;
 }
 
 // the fixed "game end" bonus has no card-sheet art at all (its old local-only image never had
@@ -2373,7 +2389,7 @@ function renderHand() {
   const pickableForCost = q0 && q0.type === QUEUE.COST && q0.cost.includes("card");
   const pickableForFromHand = q0 && q0.type === QUEUE.FISH_FROM_HAND;
   const pickableForPlay = !q0;
-  el.innerHTML = me.hand.map((card) => {
+  const handHtml = me.hand.map((card) => {
     const affordable = pickableForPlay ? canAffordCardFromHand(card, me) : true;
     const selected = card.instanceId === state.selectedInstanceId || state.selections.some((s) => s.type === "card" && s.instanceId === card.instanceId);
     const clickable = isMyTurn() && (pickableForCost || pickableForFromHand || pickableForPlay);
@@ -2382,6 +2398,13 @@ function renderHand() {
       <div class="mini-card-img" style="${cardImageStyle(card)}"></div>
     </div>`;
   }).join("");
+
+  const pickableForRecycle = isMyTurn() && q0 && q0.type === QUEUE.RECYCLE;
+  const discardHtml = me.discard.length === 0 ? "" : `<div class="hand-discard-label">Discard</div>` + me.discard.map((c) => `<div class="mini-card discard-card" data-instance="${c.instanceId}" style="${pickableForRecycle ? "" : "pointer-events:none;opacity:0.6;"}">
+      <div class="mini-card-img" style="${cardImageStyle(c)}"></div>
+    </div>`).join("");
+
+  el.innerHTML = handHtml + discardHtml;
 }
 
 function renderQueuePanel() {
@@ -2505,20 +2528,6 @@ function renderOpponents() {
   }).join("");
 }
 
-function renderDiscard() {
-  const me = myPlayer();
-  const el = document.getElementById("discard-region");
-  el.classList.toggle("hidden", !state.ui.discardVisible);
-  document.getElementById("nav-discard").classList.toggle("active", state.ui.discardVisible);
-  if (!me) { el.innerHTML = ""; return; }
-  if (!state.ui.discardVisible) return;
-  const q0 = state.queue[0];
-  const pickable = isMyTurn() && q0 && q0.type === QUEUE.RECYCLE;
-  el.innerHTML = me.discard.map((c) => `<div class="mini-card" data-instance="${c.instanceId}" style="${pickable ? "" : "pointer-events:none;opacity:0.6;"}">
-      <div class="mini-card-img" style="${cardImageStyle(c)}"></div>
-    </div>`).join("") || "<p style='font-size:12px;color:var(--text-dim);'>Discard pile is empty</p>";
-}
-
 function renderChat() {
   document.getElementById("chat-log").innerHTML = state.net.chatLog.map((m) =>
     `<div class="chat-msg"><span class="who">${escapeHtml(m.from)}:</span>${escapeHtml(m.text)}</div>`
@@ -2602,7 +2611,6 @@ function render() {
   renderBoard();
   renderHand();
   renderQueuePanel();
-  renderDiscard();
   if (isDrawerOpen("drawer-lobby")) { renderLobby(); renderOpponents(); }
   if (isDrawerOpen("drawer-chat")) renderChat();
   if (isDrawerOpen("drawer-log")) renderActionLog();
@@ -3055,7 +3063,7 @@ function wirePressFeedback() {
 // every container above -- but this listener stays as a hard backstop even without it). A tap
 // itself never needs touchmove, so unconditionally cancelling it for these elements costs nothing.
 function wireNoScrollBackstop() {
-  const NO_SCROLL = ".mini-card, .token, .dive-btn, button";
+  const NO_SCROLL = ".board-slot, .token, .dive-btn, button";
   document.body.addEventListener("touchmove", (e) => {
     if (e.target.closest(NO_SCROLL)) e.preventDefault();
   }, { passive: false });
@@ -3069,18 +3077,9 @@ function wireEvents() {
     devTiming.log = [];
     renderDevTimingLog();
   });
-  // .board-slot itself stays scrollable (touch-action:manipulation), so the browser still needs
-  // to disambiguate tap-vs-scroll there — click is correct (and lets the browser suppress it
-  // for us when a gesture turns out to be a scroll).
-  document.getElementById("board-wrap").addEventListener("click", (e) => {
-    const panel = e.target.closest("[data-player]");
-    if (!panel || panel.dataset.player !== state.myPlayerId) return;
-    const el = e.target.closest('[data-target="fish"]');
-    if (el) onFishAreaTap(parseInt(el.dataset.row, 10), parseInt(el.dataset.col, 10));
-  });
-  // .dive-btn and tokens are touch-action:none (see CSS), meaning a touch starting on one of
-  // them can never turn into a pan/scroll — panning there is simply disabled, not just
-  // deprioritized — so unlike .board-slot above, there's no ambiguity left to resolve at all.
+  // .board-slot, .dive-btn and tokens are all touch-action:none (see CSS), meaning a touch
+  // starting on one of them can never turn into a pan/scroll — panning there is simply
+  // disabled, not just deprioritized — so there's no tap-vs-scroll ambiguity left to resolve.
   // Reacting on pointerdown itself (rather than even pointerup, let alone click) is safe for
   // exactly that reason: a scroll gesture that started elsewhere never fires pointerdown here,
   // since pointerdown only fires on whatever the finger initially lands on.
@@ -3089,6 +3088,8 @@ function wireEvents() {
     if (!panel || panel.dataset.player !== state.myPlayerId) return;
     const diveBtn = e.target.closest(".dive-btn");
     if (diveBtn) { if (!diveBtn.disabled) activateDiveSite(parseInt(diveBtn.dataset.divesite, 10)); return; }
+    const fishEl = e.target.closest('[data-target="fish"]');
+    if (fishEl) { onFishAreaTap(parseInt(fishEl.dataset.row, 10), parseInt(fishEl.dataset.col, 10)); return; }
     const el = e.target.closest('[data-target="young"], [data-target="egg"], [data-target="school"]');
     if (!el) return;
     const row = parseInt(el.dataset.row, 10), col = parseInt(el.dataset.col, 10);
@@ -3098,10 +3099,16 @@ function wireEvents() {
     else if (target === "school") onSchoolBadgeTap(row, col);
   });
 
-  // mini-card is touch-action:none too (see CSS) — same reasoning as tokens/dive-btn above
-  document.getElementById("hand-region").addEventListener("pointerdown", (e) => {
+  // .mini-card stays scrollable (touch-action:manipulation), so the browser still needs to
+  // disambiguate tap-vs-scroll there — click is correct (and lets the browser suppress it for
+  // us when a gesture turns out to be a scroll). discard-pile cards are appended after hand
+  // cards in this same strip (see renderHand()), marked by the .discard-card class, and route
+  // to a different handler.
+  document.getElementById("hand-region").addEventListener("click", (e) => {
     const el = e.target.closest("[data-instance]");
-    if (el) onHandCardTap(el.dataset.instance);
+    if (!el) return;
+    if (el.classList.contains("discard-card")) onDiscardCardTap(el.dataset.instance);
+    else onHandCardTap(el.dataset.instance);
   });
 
   document.getElementById("queue-actions").addEventListener("click", (e) => {
@@ -3115,15 +3122,6 @@ function wireEvents() {
   document.getElementById("undo-btn").addEventListener("click", restoreHistorySnapshot);
   document.getElementById("toggle-bonuses-btn").addEventListener("click", () => {
     state.ui.bonusesVisible = !state.ui.bonusesVisible;
-    render();
-  });
-
-  document.getElementById("discard-region").addEventListener("pointerdown", (e) => {
-    const el = e.target.closest("[data-instance]");
-    if (el) onDiscardCardTap(el.dataset.instance);
-  });
-  document.getElementById("nav-discard").addEventListener("click", () => {
-    state.ui.discardVisible = !state.ui.discardVisible;
     render();
   });
 
