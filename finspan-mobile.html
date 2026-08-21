@@ -19,6 +19,7 @@
     --green: #3aa671;
     --danger: #d1573f;
     --ok: #3aa671;
+    --source-highlight: #3b82f6;
   }
   * {
     box-sizing: border-box;
@@ -201,6 +202,10 @@
   }
   .zone-reward-cell img { width: 18px; height: 18px; }
   .zone-reward-cell.dim { opacity: 0.3; filter: grayscale(70%); }
+  /* marks the zone-reward cell that generated the queue's current front step (a dive-site
+     zone bonus) — see "action source" highlight below on .board-slot for the card-triggered
+     equivalent */
+  .zone-reward-cell.source-highlight { box-shadow: 0 0 0 2px var(--source-highlight), 0 0 8px 3px var(--source-highlight); opacity: 1; filter: none; }
   .board-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -219,6 +224,10 @@
        instead of waiting through WebKit's tap-vs-scroll disambiguation */
     touch-action: none;
   }
+  /* marks whichever fish's cell is the "action source" of the queue's current front step —
+     the card whose ability/cost/dive-site trigger produced it — mirroring the original app's
+     boxShadow-on-source-cell behaviour so it's obvious which card a queue prompt belongs to */
+  .board-slot.source-highlight { box-shadow: 0 0 0 3px var(--source-highlight), 0 0 12px 4px var(--source-highlight); }
   .board-slot[data-col="0"] { background-color: #1a3c5c; }
   .board-slot[data-col="1"] { background-color: #3a2c5c; }
   .board-slot[data-col="2"] { background-color: #1a4c3c; }
@@ -1862,6 +1871,20 @@ function pushQueueStepFront(steps) {
   state.queue.unshift(...steps.map((s) => Object.assign({ ownerId: state.activePlayerId }, s)));
 }
 
+// "action source" highlight: every queue step carries sourceRow/sourceCol (plus, for dive-site
+// zone bonuses, source:"dive site" and sourceRow as a zone key instead of a board row) marking
+// whatever put it in the queue -- a card's cost/ability, or a dive-site zone reward. These check
+// whether the CURRENT front-of-queue step's source matches a given board cell / zone-reward cell,
+// so that cell can be highlighted blue the moment that step becomes the one being resolved.
+function queueSourceIsCell(row, col) {
+  const q0 = state.queue[0];
+  return !!q0 && typeof q0.sourceRow === "number" && q0.sourceRow === row && q0.sourceCol === col;
+}
+function queueSourceIsZone(zoneKey, col) {
+  const q0 = state.queue[0];
+  return !!q0 && q0.source === "dive site" && q0.sourceCol === col && q0.sourceRow === zoneKey;
+}
+
 function normalizeRewardToken(tok) {
   let t = tok.toLowerCase();
   if (t === "recyle") t = "recycle"; // bugfix: typo in source data
@@ -2160,6 +2183,7 @@ function renderSlot(row, col, player, isOwnPanel) {
   const b = player.board;
   const fish = b.fish[row][col];
   const valid = isOwnPanel && slotIsValidTarget(row, col);
+  const sourceHighlight = isOwnPanel && queueSourceIsCell(row, col);
   const tucked = b.tucked[row][col];
   const youngSelectedCount = isOwnPanel ? state.selections.filter((s) => s.type === "young" && s.row === row && s.col === col).length : 0;
   const eggSelected = isOwnPanel && state.selections.some((s) => s.type === "egg" && s.row === row && s.col === col);
@@ -2178,7 +2202,7 @@ function renderSlot(row, col, player, isOwnPanel) {
   }
 
   const bg = fish ? cardImageStyle(fish) : "";
-  return `<div class="board-slot${valid ? " can-drop" : ""}" data-row="${row}" data-col="${col}">
+  return `<div class="board-slot${valid ? " can-drop" : ""}${sourceHighlight ? " source-highlight" : ""}" data-row="${row}" data-col="${col}">
     <div class="slot-fish-img" data-target="fish" data-row="${row}" data-col="${col}" style="${bg}">
       ${tucked.length ? `<span class="slot-tucked-badge">x${tucked.length}</span>` : ""}
     </div>
@@ -2217,7 +2241,8 @@ function renderBoardPanelInner(player, isOwnPanel) {
       const hasFish = rows.some((r) => !!player.board.fish[r][col]);
       const token = DIVE_SITE_BONUSES[site][zoneIdx];
       const icon = ICONS[normalizeRewardToken(token)] || ICONS[token] || ICONS.drawCard;
-      return `<div class="zone-reward-cell${hasFish ? "" : " dim"}"><img src="${icon}" class="icon"/></div>`;
+      const highlighted = isOwnPanel && queueSourceIsZone(zoneKey, col);
+      return `<div class="zone-reward-cell${hasFish ? "" : " dim"}${highlighted ? " source-highlight" : ""}"><img src="${icon}" class="icon"/></div>`;
     }).join("");
     return `<div class="zone-reward-row" data-zone="${zoneKey}">${cells}</div>`;
   }
@@ -2225,11 +2250,12 @@ function renderBoardPanelInner(player, isOwnPanel) {
   function firstDiveRow() {
     const anyAvailable = ["blue", "purple", "green"].some((site) => player.uses[site + "Site"] <= 0);
     if (!anyAvailable) return "";
-    const cells = ["blue", "purple", "green"].map((site) => {
+    const cells = ["blue", "purple", "green"].map((site, col) => {
       const available = player.uses[site + "Site"] <= 0;
       const token = DIVE_SITE_BONUSES[site][3];
       const icon = ICONS[normalizeRewardToken(token)] || ICONS[token] || ICONS.drawCard;
-      return `<div class="zone-reward-cell${available ? "" : " dim"}"><img src="${icon}" class="icon"/></div>`;
+      const highlighted = isOwnPanel && queueSourceIsZone("first-dive", col);
+      return `<div class="zone-reward-cell${available ? "" : " dim"}${highlighted ? " source-highlight" : ""}"><img src="${icon}" class="icon"/></div>`;
     }).join("");
     return zoneLabel(ICONS.wave, "First dive bonus") + `<div class="zone-reward-row" data-zone="firstdive">${cells}</div>`;
   }
@@ -2301,13 +2327,16 @@ function patchPanelChrome(myPanel, player) {
     Array.from(row.children).forEach((cell, col) => {
       const hasFish = rows.some((r) => !!player.board.fish[r][col]);
       cell.classList.toggle("dim", !hasFish);
+      cell.classList.toggle("source-highlight", queueSourceIsZone(zoneKey, col));
     });
   });
   const firstDiveRow = myPanel.querySelector('.zone-reward-row[data-zone="firstdive"]');
   if (firstDiveRow) {
     ["blue", "purple", "green"].forEach((site, col) => {
       const cell = firstDiveRow.children[col];
-      if (cell) cell.classList.toggle("dim", player.uses[site + "Site"] > 0);
+      if (!cell) return;
+      cell.classList.toggle("dim", player.uses[site + "Site"] > 0);
+      cell.classList.toggle("source-highlight", queueSourceIsZone("first-dive", col));
     });
   }
 }
@@ -2330,6 +2359,7 @@ function patchOwnPanelGrid(myPanel, player) {
         entry.sig = sig;
       }
       entry.el.classList.toggle("can-drop", slotIsValidTarget(r, c));
+      entry.el.classList.toggle("source-highlight", queueSourceIsCell(r, c));
     }
   }
 }
