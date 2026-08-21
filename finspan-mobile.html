@@ -531,7 +531,7 @@
    1. CONSTANTS & CONFIG
    ========================================================= */
 
-const APP_VERSION = "1.0.1";
+const APP_VERSION = "1.0.2";
 const IMAGE_BASE = "public/images/";
 const ICON_BASE = "https://navarog.github.io/finsearch/static/media/";
 
@@ -2173,7 +2173,7 @@ function renderBoardPanelInner(player, isOwnPanel) {
   const ZONE_ROW_RANGES = [ZONE_ROWS.Sun, ZONE_ROWS.Dusk, ZONE_ROWS.Night];
   // shows the reward each dive site (blue/purple/green) grants at this zone, above that zone's slots
   // greyed out when that column has no fish in this zone yet, since diving wouldn't trigger it
-  function rewardIconRow(zoneIdx) {
+  function rewardIconRow(zoneIdx, zoneKey) {
     const rows = ZONE_ROW_RANGES[zoneIdx];
     const cells = ["blue", "purple", "green"].map((site, col) => {
       const hasFish = rows.some((r) => !!player.board.fish[r][col]);
@@ -2181,7 +2181,7 @@ function renderBoardPanelInner(player, isOwnPanel) {
       const icon = ICONS[normalizeRewardToken(token)] || ICONS[token] || ICONS.drawCard;
       return `<div class="zone-reward-cell${hasFish ? "" : " dim"}"><img src="${icon}" class="icon"/></div>`;
     }).join("");
-    return `<div class="zone-reward-row">${cells}</div>`;
+    return `<div class="zone-reward-row" data-zone="${zoneKey}">${cells}</div>`;
   }
   // shows the once-per-round "first dive" bonus for each site, only while still available this round
   function firstDiveRow() {
@@ -2193,13 +2193,13 @@ function renderBoardPanelInner(player, isOwnPanel) {
       const icon = ICONS[normalizeRewardToken(token)] || ICONS[token] || ICONS.drawCard;
       return `<div class="zone-reward-cell${available ? "" : " dim"}"><img src="${icon}" class="icon"/></div>`;
     }).join("");
-    return zoneLabel(ICONS.wave, "First dive bonus") + `<div class="zone-reward-row">${cells}</div>`;
+    return zoneLabel(ICONS.wave, "First dive bonus") + `<div class="zone-reward-row" data-zone="firstdive">${cells}</div>`;
   }
 
   return `${diveRow}
-    ${zoneLabel(ICONS.sun, "Sunlight")}${rewardIconRow(0)}${gridRows([0, 1, 2])}
-    ${zoneLabel(ICONS.dusk, "Twilight")}${rewardIconRow(1)}${gridRows([3])}
-    ${zoneLabel(ICONS.night, "Midnight")}${rewardIconRow(2)}${gridRows([4, 5])}
+    ${zoneLabel(ICONS.sun, "Sunlight")}${rewardIconRow(0, "sun")}${gridRows([0, 1, 2])}
+    ${zoneLabel(ICONS.dusk, "Twilight")}${rewardIconRow(1, "dusk")}${gridRows([3])}
+    ${zoneLabel(ICONS.night, "Midnight")}${rewardIconRow(2, "night")}${gridRows([4, 5])}
     ${firstDiveRow()}`;
 }
 
@@ -2213,18 +2213,101 @@ function renderBoardPanel(player, isOwnPanel) {
   </div>`;
 }
 
+// per-cell DOM + last-known-content cache for the currently-mounted "own panel". A full
+// string rebuild of all 18 cells (each with nested token/image elements) turned out to be the
+// real cost of render() on slower mobile JS engines — the orchestration itself is cheap, but
+// reparsing ~18 cells' worth of markup through innerHTML, every tap, is not. Most taps only
+// actually change ONE cell (a token selected, a fish placed), so this compares a cheap string
+// "signature" of each cell's content against what's currently on screen and only touches the
+// DOM for cells that actually changed — the rest are skipped entirely, not just cheaply redrawn.
+let ownPanelCellCache = null;
+
+function computeCellContentSignature(board, row, col) {
+  const fish = board.fish[row][col];
+  const fishSig = fish ? fish.sheet + "/" + fish.row + "/" + fish.col : "-";
+  const q0 = state.queue[0];
+  const moveSrc = (q0 && q0.type === QUEUE.MOVE && state.selections[0]) ? state.selections[0] : null;
+  const youngSel = state.selections.filter((s) => s.type === "young" && s.row === row && s.col === col).length;
+  const eggSel = state.selections.some((s) => s.type === "egg" && s.row === row && s.col === col) ? 1 : 0;
+  const schoolSel = state.selections.some((s) => s.type === "school" && s.row === row && s.col === col) ? 1 : 0;
+  const isMoveSrc = (moveSrc && moveSrc.row === row && moveSrc.col === col) ? 1 : 0;
+  return fishSig + "|" + board.tucked[row][col].length + "|" + board.young[row][col] + "|" +
+    board.eggs[row][col] + "|" + board.schools[row][col] + "|" + youngSel + "|" + eggSel + "|" + schoolSel + "|" + isMoveSrc;
+}
+
+// dive buttons + the small zone-reward/first-dive rows have no card art and are cheap to just
+// redraw outright every time — only the 18-cell grid below needs the signature-diff treatment
+function patchPanelChrome(myPanel, player) {
+  const total = player.uses.playFish + player.uses.blueSite + player.uses.purpleSite + player.uses.greenSite;
+  const canActivate = isMyTurn() && state.queue.length === 0 && total < 6;
+  ["blue", "purple", "green"].forEach((site, i) => {
+    const btn = myPanel.querySelector('.dive-btn[data-divesite="' + i + '"]');
+    if (!btn) return;
+    btn.disabled = !canActivate;
+    let countEl = btn.querySelector(".use-count");
+    const n = player.uses[site + "Site"];
+    if (n > 0) {
+      const text = "×" + n;
+      if (!countEl) btn.insertAdjacentHTML("beforeend", '<span class="use-count">' + text + "</span>");
+      else if (countEl.textContent !== text) countEl.textContent = text;
+    } else if (countEl) {
+      countEl.remove();
+    }
+  });
+
+  const ZONE_ROW_RANGES = { sun: ZONE_ROWS.Sun, dusk: ZONE_ROWS.Dusk, night: ZONE_ROWS.Night };
+  ["sun", "dusk", "night"].forEach((zoneKey) => {
+    const row = myPanel.querySelector('.zone-reward-row[data-zone="' + zoneKey + '"]');
+    if (!row) return;
+    const rows = ZONE_ROW_RANGES[zoneKey];
+    Array.from(row.children).forEach((cell, col) => {
+      const hasFish = rows.some((r) => !!player.board.fish[r][col]);
+      cell.classList.toggle("dim", !hasFish);
+    });
+  });
+  const firstDiveRow = myPanel.querySelector('.zone-reward-row[data-zone="firstdive"]');
+  if (firstDiveRow) {
+    ["blue", "purple", "green"].forEach((site, col) => {
+      const cell = firstDiveRow.children[col];
+      if (cell) cell.classList.toggle("dim", player.uses[site + "Site"] > 0);
+    });
+  }
+}
+
+function patchOwnPanelGrid(myPanel, player) {
+  if (!ownPanelCellCache) ownPanelCellCache = {};
+  for (let r = 0; r < 6; r++) {
+    for (let c = 0; c < 3; c++) {
+      const key = r + "," + c;
+      let entry = ownPanelCellCache[key];
+      if (!entry || !entry.el || !entry.el.isConnected) {
+        entry = { el: myPanel.querySelector('.board-slot[data-row="' + r + '"][data-col="' + c + '"]'), sig: null };
+        ownPanelCellCache[key] = entry;
+      }
+      if (!entry.el) continue;
+      const sig = computeCellContentSignature(player.board, r, c);
+      if (sig !== entry.sig) {
+        entry.el.outerHTML = renderSlot(r, c, player, true);
+        entry.el = myPanel.querySelector('.board-slot[data-row="' + r + '"][data-col="' + c + '"]');
+        entry.sig = sig;
+      }
+      entry.el.classList.toggle("can-drop", slotIsValidTarget(r, c));
+    }
+  }
+}
+
 // renders one panel per player, side by side, in turn order — the strip scrolls/snaps
 // horizontally (see #board-wrap CSS) so swiping left/right moves between players' boards.
 //
 // Full rebuilds (all panels' markup + card art regenerated) only happen when the panel set
 // itself is stale: game just (re)started, or a network/link sync just landed (state.boardDirty).
-// Every other call — i.e. essentially every tap during normal play — only your own panel's
-// board can possibly have changed (opponents' boards only change via a sync), so only that
-// one panel's innerHTML gets rebuilt; the rest just get their turn-highlight class kept in
-// sync. This is what keeps taps snappy once more than one board is mounted at a time.
+// Every other call — i.e. essentially every tap during normal play — patches only your own
+// panel, and only the specific cells that actually changed within it (see patchOwnPanelGrid);
+// other players' panels just get their turn-highlight class kept in sync. This is what keeps
+// taps snappy even on slower mobile JS engines, once more than one board is mounted at a time.
 function renderBoard() {
   const container = document.getElementById("board-wrap");
-  if (!state.gameStarted) { container.innerHTML = ""; state.boardDirty = true; return; }
+  if (!state.gameStarted) { container.innerHTML = ""; state.boardDirty = true; ownPanelCellCache = null; return; }
 
   const existing = container.querySelectorAll(".player-board-panel");
   const panelSetMatches = existing.length === state.playerOrder.length &&
@@ -2246,14 +2329,14 @@ function renderBoard() {
       if (prevTop) panel.scrollTop = prevTop;
     });
     state.boardDirty = false;
+    ownPanelCellCache = null; // the panel (and its cells) are brand new DOM nodes
     return;
   }
 
   const myPanel = container.querySelector('.player-board-panel[data-player="' + state.myPlayerId + '"]');
   if (myPanel) {
-    const prevTop = myPanel.scrollTop;
-    myPanel.innerHTML = renderBoardPanelInner(myPlayer(), true);
-    myPanel.scrollTop = prevTop;
+    patchPanelChrome(myPanel, myPlayer());
+    patchOwnPanelGrid(myPanel, myPlayer());
   }
   existing.forEach((panel) => {
     panel.classList.toggle("their-turn", !state.gameOver && panel.dataset.player === state.activePlayerId);
