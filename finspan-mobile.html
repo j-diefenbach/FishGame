@@ -45,7 +45,7 @@
   button.primary { background: var(--accent); color: #24160a; border-color: var(--accent); font-weight: 600; }
   /* instant press feedback on every tappable element — this fires the moment a finger goes
      down, at the browser's compositor, so it shows up well before any JS/render has run */
-  button:not(:disabled):active { transform: scale(0.94); filter: brightness(1.15); }
+  button:not(:disabled):active, button.pressed:not(:disabled) { transform: scale(0.94); filter: brightness(1.15); }
   input[type=text] {
     font-family: inherit;
     color: var(--text);
@@ -192,7 +192,7 @@
   .board-slot.can-drop { box-shadow: 0 0 0 3px var(--accent) inset; }
   .board-slot.blocked { filter: brightness(0.6); }
   /* instant tap feedback — shows the moment a finger goes down, no waiting on JS/render */
-  .board-slot:active { box-shadow: 0 0 0 2px var(--accent) inset; }
+  .board-slot:active, .board-slot.pressed { box-shadow: 0 0 0 2px var(--accent) inset; }
   .slot-fish-img {
     position: absolute; inset: 2px; border-radius: 6px; background-size: cover; background-repeat: no-repeat;
     border: 1px solid rgba(0,0,0,0.4);
@@ -212,7 +212,7 @@
   .token-school { background: #ae003f; }
   .token.selected { box-shadow: 0 0 0 2px #fff, 0 0 6px 2px #fff700; }
   .token img { width: 13px; height: 13px; }
-  .token:active { transform: scale(1.2); }
+  .token:active, .token.pressed { transform: scale(1.2); }
   .dive-row {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -270,7 +270,7 @@
     position: relative;
     transition: transform 0.08s ease-out;
   }
-  .mini-card:active { transform: scale(0.95) translateY(-4px); }
+  .mini-card:active, .mini-card.pressed { transform: scale(0.95) translateY(-4px); }
   .mini-card-img {
     position: absolute; inset: 2px; border-radius: 6px;
     background-size: cover; background-repeat: no-repeat;
@@ -1576,6 +1576,7 @@ function playerIsDoneThisRound(player) {
 
 const state = {
   gameId: null,
+  boardDirty: true, // forces renderBoard() to do a full rebuild next time; see renderBoard()
   players: {},
   playerOrder: [],
   myPlayerId: "p_" + Math.random().toString(36).slice(2, 8),
@@ -1666,6 +1667,7 @@ function setupGame(playerInfos, roundBonuses, deckOrder, gameId) {
   // playerInfos: [{id,name,peerId}] in turn order
   const deck = deckOrder ? deckOrder.map(makeCardInstance) : buildDeck();
   state.gameId = gameId || Math.random().toString(36).slice(2, 10);
+  state.boardDirty = true;
   state.players = {};
   state.playerOrder = playerInfos.map((p) => p.id);
   for (const info of playerInfos) {
@@ -2033,6 +2035,7 @@ function applySharedState(shared) {
   state.selections = [];
   state.selectedInstanceId = null;
   state.actedThisTurn = false;
+  state.boardDirty = true; // another player's boards just arrived over the network — full rebuild next render
 }
 
 /* =========================================================
@@ -2118,8 +2121,10 @@ function renderSlot(row, col, player, isOwnPanel) {
 
 // one player's full board (dive row, zones, grid) — used to build one panel of the
 // horizontally swipeable board-wrap strip, one panel per player in turn order
-function renderBoardPanel(player, isOwnPanel) {
-  if (!player) return "";
+// the dive row + zones + grid for one player's board — split out from renderBoardPanel() so
+// the fast path in renderBoard() can refresh just your own panel's contents without touching
+// (or re-decoding the card art images inside) every other player's panel on every tap
+function renderBoardPanelInner(player, isOwnPanel) {
   const total = player.uses.playFish + player.uses.blueSite + player.uses.purpleSite + player.uses.greenSite;
   const canActivate = isOwnPanel && isMyTurn() && state.queue.length === 0 && total < 6;
   const countBadge = (n) => n > 0 ? `<span class="use-count">&times;${n}</span>` : "";
@@ -2162,39 +2167,67 @@ function renderBoardPanel(player, isOwnPanel) {
     return zoneLabel(ICONS.wave, "First dive bonus") + `<div class="zone-reward-row">${cells}</div>`;
   }
 
-  const isTheirTurn = state.gameStarted && !state.gameOver && player.id === state.activePlayerId;
-  const header = `<div class="panel-header"><span>${escapeHtml(player.name)}</span>${isOwnPanel ? '<span class="panel-you-tag">You</span>' : ""}</div>`;
-
-  return `<div class="player-board-panel${isTheirTurn ? " their-turn" : ""}" data-player="${player.id}">
-    ${header}
-    ${diveRow}
+  return `${diveRow}
     ${zoneLabel(ICONS.sun, "Sunlight")}${rewardIconRow(0)}${gridRows([0, 1, 2])}
     ${zoneLabel(ICONS.dusk, "Twilight")}${rewardIconRow(1)}${gridRows([3])}
     ${zoneLabel(ICONS.night, "Midnight")}${rewardIconRow(2)}${gridRows([4, 5])}
-    ${firstDiveRow()}
+    ${firstDiveRow()}`;
+}
+
+function renderBoardPanel(player, isOwnPanel) {
+  if (!player) return "";
+  const isTheirTurn = state.gameStarted && !state.gameOver && player.id === state.activePlayerId;
+  const header = `<div class="panel-header"><span>${escapeHtml(player.name)}</span>${isOwnPanel ? '<span class="panel-you-tag">You</span>' : ""}</div>`;
+  return `<div class="player-board-panel${isTheirTurn ? " their-turn" : ""}" data-player="${player.id}">
+    ${header}
+    ${renderBoardPanelInner(player, isOwnPanel)}
   </div>`;
 }
 
 // renders one panel per player, side by side, in turn order — the strip scrolls/snaps
-// horizontally (see #board-wrap CSS) so swiping left/right moves between players' boards
+// horizontally (see #board-wrap CSS) so swiping left/right moves between players' boards.
+//
+// Full rebuilds (all panels' markup + card art regenerated) only happen when the panel set
+// itself is stale: game just (re)started, or a network/link sync just landed (state.boardDirty).
+// Every other call — i.e. essentially every tap during normal play — only your own panel's
+// board can possibly have changed (opponents' boards only change via a sync), so only that
+// one panel's innerHTML gets rebuilt; the rest just get their turn-highlight class kept in
+// sync. This is what keeps taps snappy once more than one board is mounted at a time.
 function renderBoard() {
   const container = document.getElementById("board-wrap");
-  if (!state.gameStarted) { container.innerHTML = ""; return; }
-  const prevScrollLeft = container.scrollLeft;
-  // each panel also scrolls independently on the vertical axis (a board is taller than the
-  // viewport) — rebuilding innerHTML destroys and recreates every panel node, which would
-  // otherwise silently reset both axes back to (0,0) on every single tap
-  const prevScrollTops = {};
-  container.querySelectorAll(".player-board-panel").forEach((panel) => {
-    prevScrollTops[panel.dataset.player] = panel.scrollTop;
-  });
-  container.innerHTML = state.playerOrder
-    .map((pid) => renderBoardPanel(state.players[pid], pid === state.myPlayerId))
-    .join("");
-  container.scrollLeft = prevScrollLeft;
-  container.querySelectorAll(".player-board-panel").forEach((panel) => {
-    const prevTop = prevScrollTops[panel.dataset.player];
-    if (prevTop) panel.scrollTop = prevTop;
+  if (!state.gameStarted) { container.innerHTML = ""; state.boardDirty = true; return; }
+
+  const existing = container.querySelectorAll(".player-board-panel");
+  const panelSetMatches = existing.length === state.playerOrder.length &&
+    Array.from(existing).every((el, i) => el.dataset.player === state.playerOrder[i]);
+
+  if (state.boardDirty || !panelSetMatches) {
+    const prevScrollLeft = container.scrollLeft;
+    // each panel also scrolls independently on the vertical axis (a board is taller than the
+    // viewport) — rebuilding innerHTML destroys and recreates every panel node, which would
+    // otherwise silently reset both axes back to (0,0)
+    const prevScrollTops = {};
+    existing.forEach((panel) => { prevScrollTops[panel.dataset.player] = panel.scrollTop; });
+    container.innerHTML = state.playerOrder
+      .map((pid) => renderBoardPanel(state.players[pid], pid === state.myPlayerId))
+      .join("");
+    container.scrollLeft = prevScrollLeft;
+    container.querySelectorAll(".player-board-panel").forEach((panel) => {
+      const prevTop = prevScrollTops[panel.dataset.player];
+      if (prevTop) panel.scrollTop = prevTop;
+    });
+    state.boardDirty = false;
+    return;
+  }
+
+  const myPanel = container.querySelector('.player-board-panel[data-player="' + state.myPlayerId + '"]');
+  if (myPanel) {
+    const prevTop = myPanel.scrollTop;
+    myPanel.innerHTML = renderBoardPanelInner(myPlayer(), true);
+    myPanel.scrollTop = prevTop;
+  }
+  existing.forEach((panel) => {
+    panel.classList.toggle("their-turn", !state.gameOver && panel.dataset.player === state.activePlayerId);
   });
 }
 
@@ -2783,7 +2816,31 @@ function handleDoneTap() {
 
 /* ---- DOM event wiring (delegated) ---- */
 
+// Instant press feedback, driven off raw pointer events rather than CSS :active. Two real
+// mobile-specific reasons for that:
+//  1. iOS Safari only honors :active on a touch tap if some element has a touchstart listener
+//     bound at all — otherwise it never applies the style for taps, only real clicks.
+//  2. The board is now scrollable in two directions (swipe between players' boards, plus
+//     vertical scroll within each panel). Any tap target inside a pannable region makes the
+//     browser wait to see if the finger moves before committing to "tap" vs "scroll" before
+//     firing `click` — touch-action:manipulation doesn't remove that, it only removes the
+//     double-tap-zoom delay. pointerdown fires immediately, before that disambiguation, so
+//     driving the visual feedback off it (separately from the actual game-logic click handler)
+//     is what makes a press look instant even while a scroll gesture is still being resolved.
+function wirePressFeedback() {
+  const PRESSABLE = ".board-slot, .mini-card, .dive-btn, .token, button";
+  document.body.addEventListener("pointerdown", (e) => {
+    const target = e.target.closest(PRESSABLE);
+    if (target && !target.disabled) target.classList.add("pressed");
+  }, { passive: true });
+  const clearPressed = () => document.querySelectorAll(".pressed").forEach((el) => el.classList.remove("pressed"));
+  document.body.addEventListener("pointerup", clearPressed, { passive: true });
+  document.body.addEventListener("pointercancel", clearPressed, { passive: true });
+  document.body.addEventListener("pointerleave", clearPressed, { passive: true });
+}
+
 function wireEvents() {
+  wirePressFeedback();
   document.getElementById("board-wrap").addEventListener("click", (e) => {
     // multiple players' boards are visible side by side now — only the panel that's
     // actually yours is ever interactive, regardless of which one you've scrolled to
@@ -3088,6 +3145,7 @@ function buildShareableState() {
 }
 function applyShareableState(cs) {
   state.gameId = cs.gid;
+  state.boardDirty = true; // other players' boards may have changed — full rebuild next render
   state.playerOrder = cs.po;
   state.activePlayerId = cs.ap;
   state.currentRound = cs.cr;
