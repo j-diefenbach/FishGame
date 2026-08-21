@@ -2480,6 +2480,11 @@ function render() {
     const q0 = state.queue[0];
     if (!q0 || (q0.type !== QUEUE.COST && q0.type !== QUEUE.MOVE)) state.selections = [];
   }
+  // any element still showing "pressed" is about to be superseded by its real new state below
+  // (board tokens/cards get fresh DOM nodes from innerHTML rebuilds anyway, but persistent
+  // elements like buttons need this explicit clear) — clearing it here, not on pointerup,
+  // means the press feedback hands off directly into the real result with no neutral flash in between
+  clearPressed();
   renderStatusBar();
   renderTurnDots();
   renderBoard();
@@ -2849,14 +2854,25 @@ function handleDoneTap() {
 //     double-tap-zoom delay. pointerdown fires immediately, before that disambiguation, so
 //     driving the visual feedback off it (separately from the actual game-logic click handler)
 //     is what makes a press look instant even while a scroll gesture is still being resolved.
+function clearPressed() {
+  document.querySelectorAll(".pressed").forEach((el) => el.classList.remove("pressed"));
+}
+
 function wirePressFeedback() {
   const PRESSABLE = ".board-slot, .mini-card, .dive-btn, .token, button";
   document.body.addEventListener("pointerdown", (e) => {
     const target = e.target.closest(PRESSABLE);
-    if (target && !target.disabled) target.classList.add("pressed");
+    if (!target || target.disabled) return;
+    target.classList.add("pressed");
+    // safety net only — a successful tap's own click handler calls render(), which clears
+    // "pressed" itself (see render()) at the exact moment the real result is ready, so the
+    // press feedback hands off smoothly into whatever actually happened instead of reverting
+    // to neutral first. This timeout only matters for taps that don't trigger any render at
+    // all (e.g. a no-op tap when it's not your turn), so it never fires stuck.
+    setTimeout(() => target.classList.remove("pressed"), 400);
   }, { passive: true });
-  const clearPressed = () => document.querySelectorAll(".pressed").forEach((el) => el.classList.remove("pressed"));
-  document.body.addEventListener("pointerup", clearPressed, { passive: true });
+  // a gesture that turns into a scroll/drag should un-press immediately — that one really is
+  // "nothing happened here", unlike a completed tap
   document.body.addEventListener("pointercancel", clearPressed, { passive: true });
   document.body.addEventListener("pointerleave", clearPressed, { passive: true });
 }
