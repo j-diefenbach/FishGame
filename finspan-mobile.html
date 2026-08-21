@@ -547,7 +547,7 @@
    1. CONSTANTS & CONFIG
    ========================================================= */
 
-const APP_VERSION = "1.0.3";
+const APP_VERSION = "1.0.4";
 const IMAGE_BASE = "public/images/";
 const ICON_BASE = "https://navarog.github.io/finsearch/static/media/";
 
@@ -3050,24 +3050,37 @@ function wireEvents() {
     devTiming.log = [];
     renderDevTimingLog();
   });
+  // .board-slot itself stays scrollable (touch-action:manipulation), so the browser still needs
+  // to disambiguate tap-vs-scroll there — click is correct (and lets the browser suppress it
+  // for us when a gesture turns out to be a scroll).
   document.getElementById("board-wrap").addEventListener("click", (e) => {
-    // multiple players' boards are visible side by side now — only the panel that's
-    // actually yours is ever interactive, regardless of which one you've scrolled to
+    const panel = e.target.closest("[data-player]");
+    if (!panel || panel.dataset.player !== state.myPlayerId) return;
+    const el = e.target.closest('[data-target="fish"]');
+    if (el) onFishAreaTap(parseInt(el.dataset.row, 10), parseInt(el.dataset.col, 10));
+  });
+  // .dive-btn and tokens are touch-action:none (see CSS), meaning a touch starting on one of
+  // them can never turn into a pan/scroll — panning there is simply disabled, not just
+  // deprioritized — so unlike .board-slot above, there's no ambiguity left to resolve at all.
+  // Reacting on pointerdown itself (rather than even pointerup, let alone click) is safe for
+  // exactly that reason: a scroll gesture that started elsewhere never fires pointerdown here,
+  // since pointerdown only fires on whatever the finger initially lands on.
+  document.getElementById("board-wrap").addEventListener("pointerdown", (e) => {
     const panel = e.target.closest("[data-player]");
     if (!panel || panel.dataset.player !== state.myPlayerId) return;
     const diveBtn = e.target.closest(".dive-btn");
-    if (diveBtn) { activateDiveSite(parseInt(diveBtn.dataset.divesite, 10)); return; }
-    const el = e.target.closest("[data-target]");
+    if (diveBtn) { if (!diveBtn.disabled) activateDiveSite(parseInt(diveBtn.dataset.divesite, 10)); return; }
+    const el = e.target.closest('[data-target="young"], [data-target="egg"], [data-target="school"]');
     if (!el) return;
     const row = parseInt(el.dataset.row, 10), col = parseInt(el.dataset.col, 10);
     const target = el.dataset.target;
-    if (target === "fish") onFishAreaTap(row, col);
-    else if (target === "young") onYoungTokenTap(row, col);
+    if (target === "young") onYoungTokenTap(row, col);
     else if (target === "egg") onEggTokenTap(row, col);
     else if (target === "school") onSchoolBadgeTap(row, col);
   });
 
-  document.getElementById("hand-region").addEventListener("click", (e) => {
+  // mini-card is touch-action:none too (see CSS) — same reasoning as tokens/dive-btn above
+  document.getElementById("hand-region").addEventListener("pointerdown", (e) => {
     const el = e.target.closest("[data-instance]");
     if (el) onHandCardTap(el.dataset.instance);
   });
@@ -3086,7 +3099,7 @@ function wireEvents() {
     render();
   });
 
-  document.getElementById("discard-region").addEventListener("click", (e) => {
+  document.getElementById("discard-region").addEventListener("pointerdown", (e) => {
     const el = e.target.closest("[data-instance]");
     if (el) onDiscardCardTap(el.dataset.instance);
   });
