@@ -285,10 +285,11 @@
     display: none;
   }
   #queue-region.visible { display: block; }
-  #queue-region .queue-prompt { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+  #queue-region .queue-prompt { display: none; }
   #queue-region .queue-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  #queue-region .queue-icons { display: flex; gap: 4px; align-items: center; }
+  #queue-region .queue-icons { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
   #queue-region .queue-icons img { width: 22px; height: 22px; }
+  #queue-region .queue-icons img.queue-arrow-icon { width: 12px; height: 12px; }
   #queue-region .cost-items { display: flex; gap: 6px; align-items: center; }
   #queue-region .cost-item { width: 26px; height: 26px; border-radius: 6px; background: var(--panel-2); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; }
   #queue-region .cost-item img { width: 16px; height: 16px; }
@@ -344,6 +345,20 @@
     border-left: 1px solid var(--border);
     padding-left: 8px;
   }
+  /* read-only hand+discard peek at the bottom of an OPPONENT's board panel — see
+     peekHandDiscardStrip() — a horizontal scroller nested inside the panel's own vertical
+     scroll, same card art/sizing as the real (interactive) hand/discard strips */
+  .peek-hand-strip {
+    display: flex; gap: 6px; overflow-x: auto;
+    padding: 4px 2px 2px;
+    margin-top: 2px;
+    /* without this, overflow-x:auto gives this item an automatic minimum size of 0 along the
+       parent's (column) main axis — since .player-board-panel's content overflows and needs to
+       shrink somewhere, flexbox preferentially collapses THIS item toward that 0 floor instead
+       of the other rows (which have no overflow set, so keep their content-based floor) */
+    flex-shrink: 0;
+  }
+  .peek-hand-strip .mini-card { height: 64px; }
 
   /* ---- bottom nav ---- */
   #bottom-nav {
@@ -362,6 +377,26 @@
     padding: 6px 2px;
   }
   #bottom-nav button:last-child { border-right: none; }
+  .hamburger-icon {
+    display: block; margin: 4px auto; position: relative;
+    width: 20px; height: 2px; background: currentColor; border-radius: 1px;
+  }
+  .hamburger-icon::before, .hamburger-icon::after {
+    content: ""; position: absolute; left: 0; width: 20px; height: 2px; background: currentColor; border-radius: 1px;
+  }
+  .hamburger-icon::before { top: -6px; }
+  .hamburger-icon::after { top: 6px; }
+  /* small jump-to-top/bottom buttons next to the hamburger -- fixed narrow width rather than
+     the flex:1 the other nav buttons use, since these are icon-only and don't need to be wide */
+  #bottom-nav button.nav-scroll-btn { flex: 0 0 40px; }
+  .scroll-arrow-icon {
+    display: block; margin: 0 auto; width: 0; height: 0;
+    border-left: 5px solid transparent; border-right: 5px solid transparent;
+  }
+  .scroll-arrow-icon.up { border-bottom: 7px solid currentColor; }
+  .scroll-arrow-icon.down { border-top: 7px solid currentColor; }
+  .status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--danger); flex: 0 0 auto; }
+  .status-dot.connected { background: var(--ok); }
 
   /* ---- drawers (full screen overlay panels) ---- */
   .drawer {
@@ -428,6 +463,29 @@
   #share-turn-overlay button { display: block; width: 100%; margin-top: 8px; padding: 12px; font-size: 15px; font-weight: 600; }
   #share-turn-status { font-size: 12px; color: var(--text-dim); margin-top: 8px; min-height: 16px; }
 
+  #dev-card-overlay {
+    position: absolute; inset: 0; background: rgba(0,0,0,0.85); z-index: 110;
+    display: flex; align-items: flex-start; justify-content: center; padding: 16px;
+  }
+  #dev-card-overlay .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px; width: 100%; max-height: 85vh; margin-top: 24px;
+    display: flex; flex-direction: column;
+  }
+  #dev-card-search { width: 100%; margin-bottom: 8px; }
+  #dev-card-results { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+  .dev-card-row {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px;
+  }
+  .dev-card-row .dev-card-thumb {
+    width: 40px; aspect-ratio: 1.35 / 1; border-radius: 4px;
+    background-size: cover; background-repeat: no-repeat; flex: 0 0 auto;
+  }
+  .dev-card-row .dev-card-name { flex: 1; font-size: 13px; }
+  .dev-card-row .dev-card-meta { font-size: 10px; color: var(--text-dim); }
+  #dev-card-status { font-size: 12px; color: var(--ok); min-height: 16px; margin-top: 6px; }
+
   .hidden { display: none !important; }
 
   body.not-my-turn #hand-region { opacity: 0.55; }
@@ -461,8 +519,10 @@
   <div id="hand-region"></div>
 
   <div id="bottom-nav">
-    <button data-drawer="lobby" id="nav-lobby">Lobby</button>
-    <button data-drawer="chat" id="nav-chat">Chat</button>
+    <button data-drawer="lobby" id="nav-lobby" aria-label="Lobby"><span class="hamburger-icon"></span></button>
+    <button id="scroll-top-btn" class="nav-scroll-btn" aria-label="Scroll to top"><span class="scroll-arrow-icon up"></span></button>
+    <button id="scroll-bottom-btn" class="nav-scroll-btn" aria-label="Scroll to bottom"><span class="scroll-arrow-icon down"></span></button>
+    <button data-drawer="chat" id="nav-chat" class="hidden">Chat</button>
     <button data-drawer="log" id="nav-log">Log</button>
     <button id="undo-btn" title="Undo">&#8630; Undo</button>
   </div>
@@ -472,14 +532,15 @@
     <div class="drawer-header"><h2>Lobby</h2><button id="close-lobby">Close</button></div>
     <div class="drawer-body">
       <div class="row">
-        <span>Your name:</span>
-        <input type="text" id="your-name-input" placeholder="Player name" />
+        <span>Your username:</span>
+        <input type="text" id="my-username-input" placeholder="choose a username" />
+        <span id="username-status-dot" class="status-dot"></span>
       </div>
       <div class="row">
-        <span>Your ID:</span>
-        <input type="text" id="my-peer-id" readonly />
-        <button id="copy-peer-id">Copy</button>
+        <button id="set-username-btn">Connect</button>
+        <button id="copy-username-btn">Copy</button>
       </div>
+      <div class="row"><span id="username-error-text" style="font-size:12px;color:var(--danger);"></span></div>
       <div id="peer-list"></div>
       <div class="row"><button id="add-peer-btn">+ Add Peer</button></div>
       <div class="row"><button id="start-game-btn" class="primary">Start Game</button></div>
@@ -489,22 +550,37 @@
       <p style="font-size:12px;color:var(--text-dim);margin:0 0 8px;">Start a game here, then send the link to the other player(s). Each time it's your turn, open the latest link you were sent; when you're done, copy a new link and send it back.</p>
       <div id="async-player-list"></div>
       <div class="row"><button id="add-async-player-btn">+ Add Player</button></div>
+      <div class="row">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;">
+          <input type="checkbox" id="pass-and-play-checkbox" />
+          Pass and play (same device, no link needed)
+        </label>
+      </div>
       <div class="row"><button id="start-async-btn" class="primary">Start Async Game</button></div>
-      <div class="row"><textarea id="share-link-box" readonly rows="3" style="width:100%;font-size:11px;background:var(--panel-2);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:8px;"></textarea></div>
-      <div class="row"><button id="copy-share-link-btn" class="primary">Copy Game Link</button></div>
-      <div class="row"><span id="share-link-status" style="font-size:12px;color:var(--text-dim);"></span></div>
+      <div id="share-link-fields">
+        <div class="row"><textarea id="share-link-box" readonly rows="3" style="width:100%;font-size:11px;background:var(--panel-2);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:8px;"></textarea></div>
+        <div class="row"><button id="copy-share-link-btn" class="primary">Copy Game Link</button></div>
+        <div class="row"><span id="share-link-status" style="font-size:12px;color:var(--text-dim);"></span></div>
+      </div>
 
-      <h2 style="font-size:15px;margin:16px 0 8px;">Opponents</h2>
-      <div id="opponents-body"></div>
+      <div id="opponents-section" class="hidden">
+        <h2 style="font-size:15px;margin:16px 0 8px;">Opponents</h2>
+        <div id="opponents-body"></div>
+      </div>
 
       <div id="app-version" style="text-align:center;font-size:11px;color:var(--text-dim);margin-top:24px;padding-bottom:8px;"></div>
 
-      <div class="row" style="margin-top:8px;">
-        <h2 style="font-size:15px;margin:0;flex:1;">Dev Timing Log</h2>
-        <button id="clear-dev-timing-btn">Clear</button>
+      <h2 style="font-size:15px;margin:16px 0 8px;">Dev Tools</h2>
+      <div class="row"><button id="dev-add-card-btn">Add Card to Hand…</button></div>
+
+      <div id="dev-timing-section" class="hidden">
+        <div class="row" style="margin-top:8px;">
+          <h2 style="font-size:15px;margin:0;flex:1;">Dev Timing Log</h2>
+          <button id="clear-dev-timing-btn">Clear</button>
+        </div>
+        <p style="font-size:11px;color:var(--text-dim);margin:0 0 8px;">Measures real touch-event timing on this device — how long between finger-down, finger-up, the browser's click, and this page's own render() work. Useful for tracking down tap lag on an actual phone.</p>
+        <div id="dev-timing-list" style="font-family:monospace;font-size:11px;display:flex;flex-direction:column;gap:2px;max-height:240px;overflow-y:auto;"></div>
       </div>
-      <p style="font-size:11px;color:var(--text-dim);margin:0 0 8px;">Measures real touch-event timing on this device — how long between finger-down, finger-up, the browser's click, and this page's own render() work. Useful for tracking down tap lag on an actual phone.</p>
-      <div id="dev-timing-list" style="font-family:monospace;font-size:11px;display:flex;flex-direction:column;gap:2px;max-height:240px;overflow-y:auto;"></div>
     </div>
   </div>
 
@@ -552,6 +628,18 @@
     </div>
   </div>
 
+  <div id="dev-card-overlay" class="hidden">
+    <div class="card">
+      <div class="row" style="margin-bottom:8px;">
+        <h2 style="font-size:15px;margin:0;flex:1;">Add Card to Hand (Dev)</h2>
+        <button id="close-dev-card-overlay">Close</button>
+      </div>
+      <input type="text" id="dev-card-search" placeholder="Search fish name..." />
+      <div id="dev-card-status"></div>
+      <div id="dev-card-results"></div>
+    </div>
+  </div>
+
 </div>
 
 <script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
@@ -565,6 +653,30 @@
 const APP_VERSION = "1.0.6";
 const IMAGE_BASE = "public/images/";
 const ICON_BASE = "https://navarog.github.io/finsearch/static/media/";
+
+// PeerJS's default cloud broker is a single global namespace shared by every app that uses it,
+// not just this one -- so a bare username like "alice" could collide with a totally unrelated
+// stranger's random PeerJS session from some other app. Prefixing every id this app registers
+// with a fixed, app-specific string keeps this app's usernames in their own corner of that
+// namespace; two players of THIS app can still collide with each other on username choice, but
+// that's a small, visible, self-resolving conflict (see the "unavailable-id" handling below)
+// rather than a silent cross-app collision.
+const PEER_ID_PREFIX = "finspan-mobile-x7q2m-";
+const USERNAME_STORAGE_KEY = "finspan-username";
+
+function sanitizeUsername(raw) {
+  return (raw || "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "-").slice(0, 40);
+}
+function fullPeerId(username) { return PEER_ID_PREFIX + sanitizeUsername(username); }
+function displayUsername(fullId) {
+  return fullId && fullId.indexOf(PEER_ID_PREFIX) === 0 ? fullId.slice(PEER_ID_PREFIX.length) : fullId;
+}
+function loadSavedUsername() {
+  try { return localStorage.getItem(USERNAME_STORAGE_KEY) || ""; } catch (e) { return ""; }
+}
+function saveUsername(username) {
+  try { localStorage.setItem(USERNAME_STORAGE_KEY, username); } catch (e) { /* private browsing / storage disabled -- just skip persisting */ }
+}
 
 const ICONS = {
   egg: ICON_BASE + "FishEgg.47c0854a65b931607a5f.svg",
@@ -1658,10 +1770,11 @@ const state = {
   finalScores: null,
   pendingIdentityChoice: false,
   isAsyncGame: false,
+  isPassAndPlay: false, // async mode variant: same device swaps identity on End Turn instead of generating a link
   history: [],
   endGameUsedSlots: {},
   net: {
-    peer: null, myPeerId: "", myName: "Player",
+    peer: null, myPeerId: "", myUsername: "", peerIdError: "", myName: "Player",
     conns: {}, connectionStatus: {}, peerNames: {}, chatLog: [], isHost: false,
   },
   ui: {
@@ -1871,6 +1984,18 @@ function pushQueueStepFront(steps) {
   state.queue.unshift(...steps.map((s) => Object.assign({ ownerId: state.activePlayerId }, s)));
 }
 
+// The single definition of "nothing left to resolve" -- checked against state.queue[0] itself
+// (matching what actually gates every action) rather than state.queue.length, so the "End Turn"
+// button the UI shows can never disagree with whether a new action is actually allowed to start.
+function queueIsEmpty() { return !state.queue[0]; }
+
+// Each turn allows exactly one NEW action (playing a card, or activating a dive site) -- once
+// state.actedThisTurn is true, only the CURRENT action's own resolution (its cost step, its
+// ability-reward steps) may continue via the queue; a second, independent action has to wait
+// for the next turn (see endTurn()/nextPlayerInOrder()). queueIsEmpty() alone can't tell these
+// apart, since the queue is empty both before your first action AND after it finishes resolving.
+function canStartNewAction() { return isMyTurn() && queueIsEmpty() && !state.actedThisTurn; }
+
 // "action source" highlight: every queue step carries sourceRow/sourceCol (plus, for dive-site
 // zone bonuses, source:"dive site" and sourceRow as a zone key instead of a board row) marking
 // whatever put it in the queue -- a card's cost/ability, or a dive-site zone reward. These check
@@ -1917,22 +2042,49 @@ function abilityToQueueSteps(rewardTokens, ctx) {
   });
 }
 
+// Reward-granting steps (young/egg/school/card/fish-from-hand/hatch/move) are self-explanatory
+// from their queue icon (plus the restriction icon — see restrictionIconHtml()) and the
+// can-drop/source highlighting already on the board, so — matching the original app.js, which
+// never had prompt text for these at all — they return no text here. Only steps needing an
+// instruction beyond "tap the highlighted thing" (a resource cost, a choice with a
+// non-obvious alternative, or a full-screen/meta action) keep one.
 function queueLabel(step) {
   if (!step) return "";
   switch (step.type) {
     case QUEUE.COST: return "Pay the cost";
-    case QUEUE.YOUNG: return "Tap a fish to add a young fish";
-    case QUEUE.EGG: return "Tap a fish to lay an egg" + (step.restriction ? ` (${step.restriction})` : "");
-    case QUEUE.SCHOOL: return "Tap a fish with young to form a school";
-    case QUEUE.DRAW_CARD: return "Tap the deck to draw a card";
+    case QUEUE.YOUNG: return "";
+    case QUEUE.EGG: return "";
+    case QUEUE.SCHOOL: return "";
+    case QUEUE.DRAW_CARD: return "";
     case QUEUE.RECYCLE: return "Tap a discarded card to reclaim it (or Done to draw instead)";
-    case QUEUE.FISH_FROM_HAND: return "Play an extra fish from hand" + (step.restriction ? ` (${step.restriction})` : "");
-    case QUEUE.MOVE: return "Tap a young fish or school, then its destination";
-    case QUEUE.HATCH: return "Tap an egg to hatch it into a young fish";
+    case QUEUE.FISH_FROM_HAND: return "";
+    case QUEUE.MOVE: return "";
+    case QUEUE.HATCH: return "";
     case QUEUE.END_ROUND: return "Round complete — tap End Round";
     case QUEUE.END_GAME_ABILITY: return "Tap a 'game end' fish to trigger it, or Done when finished";
     default: return "Unimplemented ability (" + (step.label || step.type) + ") — tap Done to skip";
   }
+}
+
+// restriction icon shown after a queue step's own icon (e.g. an egg icon followed by an arrow
+// and a purple flipper icon for "egg on every purple") — ported from the original app.js's
+// getIconFromName()/ArrowDown pairing. A second arrow is shown for "every"/"each" restrictions
+// (matching the original: eggs, which are always "on every", always got two).
+const RESTRICTION_ICONS = {
+  sun: [ICONS.sun], dusk: [ICONS.dusk], night: [ICONS.night],
+  top: [ICONS.sun, ICONS.sun], bottom: [ICONS.night, ICONS.night],
+  blue: [ICONS.flipperBlue], purple: [ICONS.flipperPurple], green: [ICONS.flipperGreen],
+  small: [ICONS.small], medium: [ICONS.medium], large: [ICONS.large], pred: [ICONS.pred],
+};
+function restrictionIconHtml(step) {
+  if (!step.restriction) return "";
+  const srcs = RESTRICTION_ICONS[step.restriction.toLowerCase()];
+  if (!srcs) return "";
+  const arrowCount = step.every ? 2 : 1;
+  let html = "";
+  for (let i = 0; i < arrowCount; i++) html += `<img src="${ICONS.arrowDown}" class="icon queue-arrow-icon"/>`;
+  html += srcs.map((s) => `<img src="${s}" class="icon"/>`).join("");
+  return html;
 }
 
 function slotKey(row, col) { return row + "," + col; }
@@ -2009,7 +2161,7 @@ function grantAllPlayersBonus(sourcePlayerId, steps) {
 
 async function endTurn() {
   if (!isMyTurn()) return;
-  if (state.queue.length > 0) return;
+  if (!queueIsEmpty()) return;
   const next = nextPlayerInOrder(state.activePlayerId);
   if (next === null) return; // everyone's out of turns; game-end is handled by resolveEndGameAbilityDone
   state.activePlayerId = next;
@@ -2020,15 +2172,28 @@ async function endTurn() {
   saveHistorySnapshot();
   render();
 
-  // async (link-based) games have no live connection to push the update through, so the
-  // player who just finished needs a link to hand off — prompt for it immediately
   if (state.isAsyncGame) {
-    state.ui.showShareOverlay = true;
-    state.ui.shareOverlayLink = "";
-    state.ui.shareOverlayStatus = "";
-    render();
-    state.ui.shareOverlayLink = await generateShareLink();
-    render();
+    if (state.isPassAndPlay) {
+      // same device keeps going as the next player -- no link/handoff needed, just hand the
+      // phone over and swap whose hand/board is "yours" for the rest of this session.
+      // renderBoard()'s fast path only ever patches the panel matching myPlayerId, reusing a
+      // DOM-element cache keyed by (row,col) alone -- it was never built to handle myPlayerId
+      // itself changing mid-session (only live P2P mode does that, once per browser tab, before
+      // any panels exist yet), so without forcing a full rebuild here the stale cache would keep
+      // pointing at the PREVIOUS own player's board cells even after this reassignment.
+      state.myPlayerId = next;
+      state.boardDirty = true;
+      render();
+    } else {
+      // link-based async games have no live connection to push the update through, so the
+      // player who just finished needs a link to hand off — prompt for it immediately
+      state.ui.showShareOverlay = true;
+      state.ui.shareOverlayLink = "";
+      state.ui.shareOverlayStatus = "";
+      render();
+      state.ui.shareOverlayLink = await generateShareLink();
+      render();
+    }
   }
 }
 
@@ -2172,7 +2337,7 @@ function slotIsValidTarget(row, col) {
       default: return false;
     }
   }
-  if (state.selectedInstanceId) {
+  if (state.selectedInstanceId && !state.actedThisTurn) {
     const card = me.hand.find((c) => c.instanceId === state.selectedInstanceId);
     return !!card && canBePlaced(card, row, col, me.board);
   }
@@ -2217,7 +2382,7 @@ function renderSlot(row, col, player, isOwnPanel) {
 // (or re-decoding the card art images inside) every other player's panel on every tap
 function renderBoardPanelInner(player, isOwnPanel) {
   const total = player.uses.playFish + player.uses.blueSite + player.uses.purpleSite + player.uses.greenSite;
-  const canActivate = isOwnPanel && isMyTurn() && state.queue.length === 0 && total < 6;
+  const canActivate = isOwnPanel && canStartNewAction() && total < 6;
   const countBadge = (n) => n > 0 ? `<span class="use-count">&times;${n}</span>` : "";
 
   const diveRow = `<div class="dive-row">
@@ -2260,11 +2425,26 @@ function renderBoardPanelInner(player, isOwnPanel) {
     return zoneLabel(ICONS.wave, "First dive bonus") + `<div class="zone-reward-row" data-zone="firstdive">${cells}</div>`;
   }
 
+  // other players' hand + discard aren't hidden info in this port (no secret-hand mechanic),
+  // so a read-only horizontal strip at the bottom of their panel lets you see what they're
+  // holding — same card art as your own hand/discard strip, just not tappable. Only shown on
+  // opponents' panels: your own hand/discard already has its own strip at the bottom of the
+  // whole screen (#hand-region), so repeating it here would be redundant.
+  function peekHandDiscardStrip() {
+    if (isOwnPanel) return "";
+    const handHtml = player.hand.map((card) => `<div class="mini-card" style="pointer-events:none;"><div class="mini-card-img" style="${cardImageStyle(card)}"></div></div>`).join("");
+    const discardHtml = player.discard.length === 0 ? "" : `<div class="hand-discard-label">Discard</div>` +
+      player.discard.map((card) => `<div class="mini-card discard-card" style="pointer-events:none;"><div class="mini-card-img" style="${cardImageStyle(card)}"></div></div>`).join("");
+    if (!handHtml && !discardHtml) return "";
+    return zoneLabel(ICONS.fishFromHand, "Hand &amp; discard") + `<div class="peek-hand-strip">${handHtml}${discardHtml}</div>`;
+  }
+
   return `${diveRow}
     ${zoneLabel(ICONS.sun, "Sunlight")}${rewardIconRow(0, "sun")}${gridRows([0, 1, 2])}
     ${zoneLabel(ICONS.dusk, "Twilight")}${rewardIconRow(1, "dusk")}${gridRows([3])}
     ${zoneLabel(ICONS.night, "Midnight")}${rewardIconRow(2, "night")}${gridRows([4, 5])}
-    ${firstDiveRow()}`;
+    ${firstDiveRow()}
+    ${peekHandDiscardStrip()}`;
 }
 
 function renderBoardPanel(player, isOwnPanel) {
@@ -2303,7 +2483,7 @@ function computeCellContentSignature(board, row, col) {
 // redraw outright every time — only the 18-cell grid below needs the signature-diff treatment
 function patchPanelChrome(myPanel, player) {
   const total = player.uses.playFish + player.uses.blueSite + player.uses.purpleSite + player.uses.greenSite;
-  const canActivate = isMyTurn() && state.queue.length === 0 && total < 6;
+  const canActivate = canStartNewAction() && total < 6;
   ["blue", "purple", "green"].forEach((site, i) => {
     const btn = myPanel.querySelector('.dive-btn[data-divesite="' + i + '"]');
     if (!btn) return;
@@ -2411,6 +2591,18 @@ function renderBoard() {
   });
 }
 
+// jumps whichever player panel is currently horizontally in view (#board-wrap scrolls
+// between players, each panel scrolls vertically on its own) to the top or bottom of its own
+// scroll -- used by the two small arrow buttons next to the hamburger icon in #bottom-nav.
+function scrollActiveBoardPanel(edge) {
+  const wrap = document.getElementById("board-wrap");
+  const panels = wrap.querySelectorAll(".player-board-panel");
+  if (!panels.length) return;
+  const idx = Math.round(wrap.scrollLeft / wrap.clientWidth);
+  const panel = panels[Math.max(0, Math.min(panels.length - 1, idx))];
+  panel.scrollTo({ top: edge === "top" ? 0 : panel.scrollHeight, behavior: "smooth" });
+}
+
 function renderHand() {
   const me = myPlayer();
   const el = document.getElementById("hand-region");
@@ -2418,7 +2610,7 @@ function renderHand() {
   const q0 = state.queue[0];
   const pickableForCost = q0 && q0.type === QUEUE.COST && q0.cost.includes("card");
   const pickableForFromHand = q0 && q0.type === QUEUE.FISH_FROM_HAND;
-  const pickableForPlay = !q0;
+  const pickableForPlay = !q0 && !state.actedThisTurn;
   const handHtml = me.hand.map((card) => {
     const affordable = pickableForPlay ? canAffordCardFromHand(card, me) : true;
     const selected = card.instanceId === state.selectedInstanceId || state.selections.some((s) => s.type === "card" && s.instanceId === card.instanceId);
@@ -2440,23 +2632,28 @@ function renderHand() {
 function renderQueuePanel() {
   const region = document.getElementById("queue-region");
   const q0 = state.queue[0];
+  // queue-prompt text is kept up to date (harmless, useful for debugging in devtools) but the
+  // element itself is permanently hidden via CSS — see .queue-prompt — so none of this is ever
+  // actually shown to the player; the icon row + board highlighting carry the UI on their own.
+  const promptEl = document.getElementById("queue-prompt");
   if (!isMyTurn()) { region.classList.remove("visible"); return; }
   if (!q0) {
     if (!state.actedThisTurn) { region.classList.remove("visible"); return; }
     region.classList.add("visible");
-    document.getElementById("queue-prompt").textContent = "Nothing left to resolve — end your turn, or keep taking actions.";
+    promptEl.textContent = "Nothing left to resolve — end your turn.";
     document.getElementById("queue-icons").innerHTML = "";
     document.getElementById("cost-items").innerHTML = "";
     document.getElementById("queue-actions").innerHTML = `<button id="end-turn-btn" class="primary">End Turn</button>`;
     return;
   }
   region.classList.add("visible");
-  document.getElementById("queue-prompt").textContent = queueLabel(q0);
+  promptEl.textContent = queueLabel(q0);
 
   const iconFor = (type) => ICONS[type] || null;
   let iconsHtml = "";
   for (let i = state.queue.length - 1; i >= 0; i--) {
     const it = state.queue[i];
+    if (!it) continue; // defensive: a falsy entry should never end up in state.queue, but this loop iterates the whole array, unlike the queueIsEmpty() front-only check
     if (it.type === QUEUE.END_ROUND) {
       const idx = state.roundBonuses[state.currentRound - 1];
       iconsHtml += idx != null
@@ -2465,7 +2662,9 @@ function renderQueuePanel() {
       continue;
     }
     const src = iconFor(it.type);
-    iconsHtml += src ? `<img src="${src}" class="icon"/>` : `<span style="font-size:11px;background:var(--panel-2);border-radius:4px;padding:2px 4px;">${escapeHtml(it.label || it.type)}</span>`;
+    iconsHtml += src
+      ? `<img src="${src}" class="icon"/>${restrictionIconHtml(it)}`
+      : `<span style="font-size:11px;background:var(--panel-2);border-radius:4px;padding:2px 4px;">${escapeHtml(it.label || it.type)}</span>`;
   }
   document.getElementById("queue-icons").innerHTML = iconsHtml;
 
@@ -2569,18 +2768,27 @@ function renderActionLog() {
 }
 
 function renderLobby() {
-  document.getElementById("my-peer-id").value = state.net.myPeerId || "(connecting...)";
-  document.getElementById("your-name-input").value = state.net.myName;
+  const usernameInput = document.getElementById("my-username-input");
+  // don't stomp on the user's in-progress typing if some unrelated event (a peer connecting,
+  // etc.) triggers a render() while they're still choosing a username
+  if (document.activeElement !== usernameInput) usernameInput.value = state.net.myUsername || "";
+
+  const connected = !!state.net.myPeerId && !state.net.peerIdError;
+  const dot = document.getElementById("username-status-dot");
+  dot.classList.toggle("connected", connected);
+  dot.title = state.net.peerIdError || (connected ? ("Connected as \"" + state.net.myUsername + "\"") : (state.net.myUsername ? "Connecting..." : "Not connected"));
+  document.getElementById("username-error-text").textContent = state.net.peerIdError || "";
+
   const list = document.getElementById("peer-list");
   const ids = Object.keys(state.net.conns).length ? Object.keys(state.net.conns) : [];
   const pendingRows = state.net.pendingPeerInputs || [];
   let html = "";
   ids.forEach((pid) => {
     const status = state.net.connectionStatus[pid] || "connecting";
-    html += `<div class="peer-row"><input type="text" value="${escapeHtml(pid)}" readonly /><span>${status === "open" ? "&#9989; connected" : status}</span></div>`;
+    html += `<div class="peer-row"><input type="text" value="${escapeHtml(displayUsername(pid))}" readonly /><span>${status === "open" ? "&#9989; connected" : status}</span></div>`;
   });
   pendingRows.forEach((val, i) => {
-    html += `<div class="peer-row"><input type="text" class="peer-input" data-idx="${i}" placeholder="Paste peer ID" value="${escapeHtml(val || "")}" /><button class="peer-connect-btn" data-idx="${i}">Connect</button></div>`;
+    html += `<div class="peer-row"><input type="text" class="peer-input" data-idx="${i}" placeholder="Friend's username" value="${escapeHtml(val || "")}" /><button class="peer-connect-btn" data-idx="${i}">Connect</button></div>`;
   });
   list.innerHTML = html;
   document.getElementById("lobby-status").textContent = state.gameStarted ? "Game already in progress." : ("Players in lobby: " + (1 + ids.length));
@@ -2593,6 +2801,8 @@ function renderLobby() {
       ${names.length > 2 ? `<button class="remove-async-player-btn" data-idx="${i}">&times;</button>` : ""}
     </div>`).join("");
   document.getElementById("start-async-btn").disabled = state.gameStarted;
+  document.getElementById("pass-and-play-checkbox").checked = state.isPassAndPlay;
+  document.getElementById("share-link-fields").classList.toggle("hidden", document.getElementById("pass-and-play-checkbox").checked);
 }
 
 function renderFinalScore() {
@@ -2685,7 +2895,7 @@ function placeCardOnBoard(card, row, col, isExtraPlay) {
 }
 
 function tryPlayFish(instanceId, row, col) {
-  if (!isMyTurn() || state.queue.length > 0) return false;
+  if (!canStartNewAction()) return false;
   const me = myPlayer();
   const card = me.hand.find((c) => c.instanceId === instanceId);
   if (!card || !canBePlaced(card, row, col, me.board)) return false;
@@ -2897,7 +3107,7 @@ function onHandCardTap(instanceId) {
     render();
     return;
   }
-  if (!q0) {
+  if (!q0 && !state.actedThisTurn) {
     state.selectedInstanceId = state.selectedInstanceId === instanceId ? null : instanceId;
     render();
   }
@@ -2931,7 +3141,7 @@ function payCost() {
 }
 
 function activateDiveSite(col) {
-  if (!isMyTurn() || state.queue.length > 0) return;
+  if (!canStartNewAction()) return;
   const me = myPlayer();
   const total = me.uses.playFish + me.uses.blueSite + me.uses.purpleSite + me.uses.greenSite;
   if (total >= 6) return;
@@ -2964,6 +3174,7 @@ function activateDiveSite(col) {
   me.uses[useKey] += 1;
   me.actionsThisRound.push({ type: site });
   state.actedThisTurn = true;
+  state.selectedInstanceId = null; // clear any stale hand-card selection now that a new action can't start until next turn
   checkUsesForRoundEnd(me);
   pushLog(me.name + " activated the " + site + " dive site.");
   saveHistorySnapshot();
@@ -3006,6 +3217,47 @@ function handleDoneTap() {
 //     is what makes a press look instant even while a scroll gesture is still being resolved.
 function clearPressed() {
   document.querySelectorAll(".pressed").forEach((el) => el.classList.remove("pressed"));
+}
+
+/* =========================================================
+   DEV: ADD CARD TO HAND — search all 135 fish cards and drop one straight into your own
+   hand, for testing abilities/scoring without having to draw into them naturally. Lives in
+   the Lobby drawer's "Dev Tools" section, as a search popup rather than a full drawer since
+   it's a one-off action, not something that needs to stay open alongside the game.
+   ========================================================= */
+function renderDevCardResults() {
+  const search = document.getElementById("dev-card-search").value.trim().toLowerCase();
+  const matches = CARD_DATA
+    .map((c, idx) => ({ c, idx }))
+    .filter(({ c }) => !search || c.name.toLowerCase().includes(search))
+    .slice(0, 60); // 135 cards max, but no need to render more than fits a few screens of scroll
+  document.getElementById("dev-card-results").innerHTML = matches.map(({ c, idx }) => `
+    <div class="dev-card-row" data-card-index="${idx}">
+      <div class="dev-card-thumb" style="${cardImageStyle(c)}"></div>
+      <div class="dev-card-name">${escapeHtml(c.name)}</div>
+      <div class="dev-card-meta">${escapeHtml(c.size)}${c.cost.length ? " · " + escapeHtml(c.cost.join("+")) : " · free"}</div>
+    </div>`).join("") || `<p style="font-size:12px;color:var(--text-dim);">No matching cards.</p>`;
+}
+
+function openDevCardOverlay() {
+  document.getElementById("dev-card-overlay").classList.remove("hidden");
+  document.getElementById("dev-card-search").value = "";
+  document.getElementById("dev-card-status").textContent = "";
+  renderDevCardResults();
+}
+
+function closeDevCardOverlay() {
+  document.getElementById("dev-card-overlay").classList.add("hidden");
+}
+
+function devAddCardToHand(cardIndex) {
+  const me = myPlayer();
+  const data = CARD_DATA[cardIndex];
+  if (!me || !data) return;
+  me.hand.push(makeCardInstance(data));
+  document.getElementById("dev-card-status").textContent = "Added \"" + data.name + "\" to hand.";
+  saveHistorySnapshot();
+  render();
 }
 
 /* =========================================================
@@ -3107,6 +3359,13 @@ function wireEvents() {
     devTiming.log = [];
     renderDevTimingLog();
   });
+  document.getElementById("dev-add-card-btn").addEventListener("click", openDevCardOverlay);
+  document.getElementById("close-dev-card-overlay").addEventListener("click", closeDevCardOverlay);
+  document.getElementById("dev-card-search").addEventListener("input", renderDevCardResults);
+  document.getElementById("dev-card-results").addEventListener("click", (e) => {
+    const row = e.target.closest(".dev-card-row");
+    if (row) devAddCardToHand(parseInt(row.dataset.cardIndex, 10));
+  });
   // .board-slot, .dive-btn and tokens are all touch-action:none (see CSS), meaning a touch
   // starting on one of them can never turn into a pan/scroll — panning there is simply
   // disabled, not just deprioritized — so there's no tap-vs-scroll ambiguity left to resolve.
@@ -3150,6 +3409,8 @@ function wireEvents() {
   });
 
   document.getElementById("undo-btn").addEventListener("click", restoreHistorySnapshot);
+  document.getElementById("scroll-top-btn").addEventListener("click", () => scrollActiveBoardPanel("top"));
+  document.getElementById("scroll-bottom-btn").addEventListener("click", () => scrollActiveBoardPanel("bottom"));
   document.getElementById("toggle-bonuses-btn").addEventListener("click", () => {
     state.ui.bonusesVisible = !state.ui.bonusesVisible;
     render();
@@ -3166,14 +3427,15 @@ function wireEvents() {
     if (closeBtn) closeBtn.addEventListener("click", closeDrawers);
   });
 
-  document.getElementById("your-name-input").addEventListener("change", (e) => {
-    state.net.myName = e.target.value || "Player";
-    const me = myPlayer();
-    if (me) me.name = state.net.myName;
+  document.getElementById("set-username-btn").addEventListener("click", () => {
+    const clean = sanitizeUsername(document.getElementById("my-username-input").value);
+    if (!clean) return;
+    saveUsername(clean);
+    initPeer(clean);
     render();
   });
-  document.getElementById("copy-peer-id").addEventListener("click", () => {
-    if (navigator.clipboard && state.net.myPeerId) navigator.clipboard.writeText(state.net.myPeerId);
+  document.getElementById("copy-username-btn").addEventListener("click", () => {
+    if (navigator.clipboard && state.net.myUsername) navigator.clipboard.writeText(state.net.myUsername);
   });
   document.getElementById("add-peer-btn").addEventListener("click", () => {
     state.net.pendingPeerInputs = state.net.pendingPeerInputs || [];
@@ -3185,7 +3447,8 @@ function wireEvents() {
     if (!btn) return;
     const idx = parseInt(btn.dataset.idx, 10);
     const input = document.querySelector('.peer-input[data-idx="' + idx + '"]');
-    if (input && input.value.trim()) connectToPeer(input.value.trim());
+    const clean = sanitizeUsername(input && input.value);
+    if (clean) connectToPeer(fullPeerId(clean));
   });
   document.getElementById("peer-list").addEventListener("change", (e) => {
     if (e.target.classList.contains("peer-input")) {
@@ -3209,6 +3472,10 @@ function wireEvents() {
     if (e.target.classList.contains("async-player-input")) {
       state.ui.asyncPlayerInputs[parseInt(e.target.dataset.idx, 10)] = e.target.value;
     }
+  });
+  document.getElementById("pass-and-play-checkbox").addEventListener("change", (e) => {
+    state.isPassAndPlay = e.target.checked;
+    document.getElementById("share-link-fields").classList.toggle("hidden", e.target.checked);
   });
   document.getElementById("start-async-btn").addEventListener("click", startAsyncGame);
   document.getElementById("copy-share-link-btn").addEventListener("click", copyShareLink);
@@ -3334,20 +3601,37 @@ function startGameAsHost() {
   render();
 }
 
-function initPeer() {
+function initPeer(username) {
   if (typeof Peer === "undefined") { console.warn("PeerJS failed to load; networking disabled."); return; }
-  const peer = new Peer();
+  const clean = sanitizeUsername(username);
+  if (!clean) return;
+  // switching usernames means the old Peer object's id is stuck forever (PeerJS ids are
+  // immutable once created), so any earlier connection has to be torn down and replaced
+  if (state.net.peer) { try { state.net.peer.destroy(); } catch (e) { /* already gone */ } }
+  state.net.myUsername = clean;
+  state.net.myName = clean; // the username doubles as the in-game display name -- no separate field
+  state.net.myPeerId = "";
+  state.net.peerIdError = "";
+  const me = myPlayer();
+  if (me) me.name = clean;
+  const peer = new Peer(fullPeerId(clean));
   state.net.peer = peer;
   peer.on("open", (id) => {
     state.net.myPeerId = id;
-    // the player's identity must be derived from their real PeerJS id (not a locally-random
+    // the player's identity must be derived from the chosen username (not a locally-random
     // placeholder) so that whichever peer calls setupGame() assigns everyone the same ids;
     // only safe to swap before a game is actually running
-    if (!state.gameStarted) state.myPlayerId = "p_" + id;
+    if (!state.gameStarted) state.myPlayerId = "p_" + clean;
     render();
   });
   peer.on("connection", (conn) => { wireConnection(conn); });
-  peer.on("error", (err) => { console.error("PeerJS error", err); });
+  peer.on("error", (err) => {
+    console.error("PeerJS error", err);
+    // someone else is already registered under this exact username (on this app's shared
+    // prefix) -- surface that plainly rather than leaving the user staring at "Connecting..."
+    if (err && err.type === "unavailable-id") state.net.peerIdError = "That username is already taken right now — try another.";
+    render();
+  });
 }
 
 /* =========================================================
@@ -3560,7 +3844,9 @@ async function startAsyncGame() {
   setupGame(playerInfos, rollRoundBonuses(), null, gameId);
   state.myPlayerId = playerInfos[0].id;
   state.isAsyncGame = true;
-  await refreshShareLinkBox();
+  state.isPassAndPlay = document.getElementById("pass-and-play-checkbox").checked;
+  // pass-and-play never leaves this tab, so there's no link to generate or hand off
+  if (!state.isPassAndPlay) await refreshShareLinkBox();
   render();
 }
 
@@ -3590,12 +3876,12 @@ async function copyShareLink() {
    ========================================================= */
 
 async function boot() {
-  state.net.myName = "Player " + Math.floor(Math.random() * 900 + 100);
   state.net.pendingPeerInputs = [];
   document.getElementById("app-version").textContent = "Finspan v" + APP_VERSION;
   wireEvents();
   await tryLoadFromHash();
-  initPeer();
+  const savedUsername = loadSavedUsername();
+  if (savedUsername) initPeer(savedUsername); // a username is required to open a PeerJS connection; without one, the user picks one in the Lobby and taps Connect
   render();
 }
 
