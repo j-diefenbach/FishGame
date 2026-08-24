@@ -220,10 +220,13 @@
     background-position: center;
     overflow: visible;
     transition: box-shadow 0.08s ease-out;
-    /* tap-only, no pan — a touch starting on a slot activates it immediately on pointerdown
-       instead of waiting through WebKit's tap-vs-scroll disambiguation */
-    touch-action: none;
+    /* touch-action:manipulation (inherited from the global rule) by default, so the panel can
+       still be scrolled by dragging directly on a slot when there's nothing to tap-place yet.
+       Once a hand card is selected, body.card-selected below switches every slot to tap-only
+       (no pan) so placing it activates immediately on pointerdown instead of waiting through
+       WebKit's tap-vs-scroll disambiguation -- see canStartNewAction()-adjacent selection state. */
   }
+  body.card-selected .board-slot { touch-action: none; }
   /* marks whichever fish's cell is the "action source" of the queue's current front step —
      the card whose ability/cost/dive-site trigger produced it — mirroring the original app's
      boxShadow-on-source-cell behaviour so it's obvious which card a queue prompt belongs to */
@@ -650,7 +653,7 @@
    1. CONSTANTS & CONFIG
    ========================================================= */
 
-const APP_VERSION = "1.1.0";
+const APP_VERSION = "1.1.1";
 const IMAGE_BASE = "public/images/";
 const ICON_BASE = "https://navarog.github.io/finsearch/static/media/";
 
@@ -2858,6 +2861,7 @@ function render() {
   renderIdentityPicker();
   renderShareTurnOverlay();
   document.body.classList.toggle("not-my-turn", state.gameStarted && !state.gameOver && !isMyTurn());
+  document.body.classList.toggle("card-selected", !!state.selectedInstanceId);
 }
 
 /* =========================================================
@@ -3345,9 +3349,12 @@ function wirePressFeedback() {
 // every container above -- but this listener stays as a hard backstop even without it). A tap
 // itself never needs touchmove, so unconditionally cancelling it for these elements costs nothing.
 function wireNoScrollBackstop() {
-  const NO_SCROLL = ".board-slot, .token, .dive-btn, button";
+  const ALWAYS_NO_SCROLL = ".token, .dive-btn, button";
   document.body.addEventListener("touchmove", (e) => {
-    if (e.target.closest(NO_SCROLL)) e.preventDefault();
+    if (e.target.closest(ALWAYS_NO_SCROLL)) { e.preventDefault(); return; }
+    // .board-slot only needs this while it's actually touch-action:none (a hand card is
+    // selected, see body.card-selected in CSS) -- otherwise it's meant to stay scrollable
+    if (document.body.classList.contains("card-selected") && e.target.closest(".board-slot")) e.preventDefault();
   }, { passive: false });
 }
 
@@ -3366,19 +3373,26 @@ function wireEvents() {
     const row = e.target.closest(".dev-card-row");
     if (row) devAddCardToHand(parseInt(row.dataset.cardIndex, 10));
   });
-  // .board-slot, .dive-btn and tokens are all touch-action:none (see CSS), meaning a touch
-  // starting on one of them can never turn into a pan/scroll — panning there is simply
-  // disabled, not just deprioritized — so there's no tap-vs-scroll ambiguity left to resolve.
-  // Reacting on pointerdown itself (rather than even pointerup, let alone click) is safe for
-  // exactly that reason: a scroll gesture that started elsewhere never fires pointerdown here,
-  // since pointerdown only fires on whatever the finger initially lands on.
+  // .dive-btn and tokens are always touch-action:none (see CSS), meaning a touch starting on
+  // one of them can never turn into a pan/scroll — panning there is simply disabled, not just
+  // deprioritized — so there's no tap-vs-scroll ambiguity left to resolve. Reacting on
+  // pointerdown itself (rather than even pointerup, let alone click) is safe for exactly that
+  // reason: a scroll gesture that started elsewhere never fires pointerdown here, since
+  // pointerdown only fires on whatever the finger initially lands on.
+  //
+  // .board-slot is different: it's touch-action:none ONLY while a hand card is selected
+  // (body.card-selected, see CSS) — the rest of the time it's the scrollable surface for the
+  // panel, so fish-slot taps have to go through the click listener below instead, where the
+  // ambiguity actually needs the browser's own tap-vs-scroll resolution.
   document.getElementById("board-wrap").addEventListener("pointerdown", (e) => {
     const panel = e.target.closest("[data-player]");
     if (!panel || panel.dataset.player !== state.myPlayerId) return;
     const diveBtn = e.target.closest(".dive-btn");
     if (diveBtn) { if (!diveBtn.disabled) activateDiveSite(parseInt(diveBtn.dataset.divesite, 10)); return; }
-    const fishEl = e.target.closest('[data-target="fish"]');
-    if (fishEl) { onFishAreaTap(parseInt(fishEl.dataset.row, 10), parseInt(fishEl.dataset.col, 10)); return; }
+    if (document.body.classList.contains("card-selected")) {
+      const fishEl = e.target.closest('[data-target="fish"]');
+      if (fishEl) { onFishAreaTap(parseInt(fishEl.dataset.row, 10), parseInt(fishEl.dataset.col, 10)); return; }
+    }
     const el = e.target.closest('[data-target="young"], [data-target="egg"], [data-target="school"]');
     if (!el) return;
     const row = parseInt(el.dataset.row, 10), col = parseInt(el.dataset.col, 10);
@@ -3386,6 +3400,13 @@ function wireEvents() {
     if (target === "young") onYoungTokenTap(row, col);
     else if (target === "egg") onEggTokenTap(row, col);
     else if (target === "school") onSchoolBadgeTap(row, col);
+  });
+  document.getElementById("board-wrap").addEventListener("click", (e) => {
+    if (document.body.classList.contains("card-selected")) return; // already handled on pointerdown above
+    const panel = e.target.closest("[data-player]");
+    if (!panel || panel.dataset.player !== state.myPlayerId) return;
+    const fishEl = e.target.closest('[data-target="fish"]');
+    if (fishEl) onFishAreaTap(parseInt(fishEl.dataset.row, 10), parseInt(fishEl.dataset.col, 10));
   });
 
   // .mini-card stays scrollable (touch-action:manipulation), so the browser still needs to
