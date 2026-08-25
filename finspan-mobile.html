@@ -242,6 +242,9 @@
     position: absolute; inset: 2px; border-radius: 6px; background-size: cover; background-repeat: no-repeat;
     border: 1px solid rgba(0,0,0,0.4);
   }
+  /* the starting Forage Fish pieces show a plain recycle icon instead of card art — see renderSlot() */
+  .slot-fish-img.forage-slot { display: flex; align-items: center; justify-content: center; background-color: #12293e; }
+  .forage-icon { width: 55%; height: 55%; opacity: 0.8; }
   .slot-tucked-badge {
     position: absolute; bottom: 2px; right: 2px; background: rgba(0,0,0,0.55); color: #fff;
     font-size: 9px; border-radius: 4px; padding: 1px 4px;
@@ -2342,9 +2345,16 @@ function renderSlot(row, col, player, isOwnPanel) {
     tokensHtml += `<div class="token token-school${schoolSelected || isMoveSrc ? " selected" : ""}" data-target="school" data-row="${row}" data-col="${col}" style="${b.schools[row][col] === 0 ? "opacity:0.45;" : ""}"><img src="${ICONS.school}" class="icon"/></div>`;
   }
 
-  const bg = fish ? cardImageStyle(fish) : "";
+  // the starting "Forage Fish" pieces point at the sprite sheet's card-BACK design (there's no
+  // real per-species art for them), which intermittently fails to actually paint as a
+  // background-image on these cells when a game is set up fresh or loaded from an async link —
+  // shown as a simple recycle icon instead, sidestepping that image entirely rather than
+  // depending on it to load
+  const isForage = !!fish && fish.tags && fish.tags.includes("forage");
+  const bg = fish && !isForage ? cardImageStyle(fish) : "";
   return `<div class="board-slot${valid ? " can-drop" : ""}${sourceHighlight ? " source-highlight" : ""}" data-row="${row}" data-col="${col}">
-    <div class="slot-fish-img" data-target="fish" data-row="${row}" data-col="${col}" style="${bg}">
+    <div class="slot-fish-img${isForage ? " forage-slot" : ""}" data-target="fish" data-row="${row}" data-col="${col}" style="${bg}">
+      ${isForage ? `<img src="${ICONS.recycle}" class="icon forage-icon"/>` : ""}
       ${tucked.length ? `<span class="slot-tucked-badge">x${tucked.length}</span>` : ""}
     </div>
     <div class="slot-tokens">${tokensHtml}</div>
