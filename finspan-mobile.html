@@ -626,7 +626,7 @@
    1. CONSTANTS & CONFIG
    ========================================================= */
 
-const APP_VERSION = "1.1.3";
+const APP_VERSION = "1.1.4";
 const IMAGE_BASE = "public/images/";
 const ICON_BASE = "https://navarog.github.io/finsearch/static/media/";
 
@@ -2161,10 +2161,14 @@ async function endTurn() {
       render();
     } else {
       // link-based async games have no live connection to push the update through, so the
-      // player who just finished needs a link to hand off — generate it and copy it straight
-      // to the clipboard, no popup to dismiss first
-      const link = await generateShareLink();
-      await copyLinkToClipboard(link);
+      // player who just finished needs a link to hand off — copy it straight to the clipboard,
+      // no popup to dismiss first. generateShareLink() is NOT awaited here on purpose (see
+      // copyTextToClipboardAsync()) so the clipboard write stays tied to this tap's own gesture.
+      const ok = await copyTextToClipboardAsync(generateShareLink());
+      pushLog(ok
+        ? "Turn link copied to clipboard — send it to the next player."
+        : "Couldn't copy the turn link automatically — open the Lobby to copy it manually.");
+      render();
     }
   }
 }
@@ -3793,17 +3797,31 @@ function renderIdentityPicker() {
   }).join("");
 }
 
-// silently copies the turn-handoff link straight to the clipboard, no popup to dismiss first —
-// the action log entry is the only feedback (or lack of one, if the clipboard write failed)
-async function copyLinkToClipboard(link) {
-  try {
-    if (navigator.clipboard) await navigator.clipboard.writeText(link);
-    else document.execCommand("copy");
-    pushLog("Turn link copied to clipboard — send it to the next player.");
-  } catch (e) {
-    pushLog("Couldn't copy the turn link automatically — open the Lobby to copy it manually.");
+// Safari (especially iOS) revokes a tap's "user activation" the moment any await elapses since
+// the click that triggered it -- and generateShareLink() is itself async (it gzip-compresses
+// the shared state), so calling navigator.clipboard.writeText() only after awaiting that link
+// silently fails there, even though nothing looks wrong in the code. The fix is the deferred-
+// value form of the broader write() API: a ClipboardItem whose data is a still-pending Promise
+// keeps the write tied to the ORIGINAL gesture even though the actual text resolves a moment
+// later -- but this call itself has to happen synchronously (no preceding await) for that to
+// work, so callers must pass the promise straight through rather than awaiting it first.
+async function copyTextToClipboardAsync(textPromise) {
+  if (navigator.clipboard && typeof ClipboardItem === "function") {
+    try {
+      await navigator.clipboard.write([
+        new ClipboardItem({ "text/plain": textPromise.then((text) => new Blob([text], { type: "text/plain" })) }),
+      ]);
+      return true;
+    } catch (e) { /* fall through to the older/simpler API below (also covers denied permission) */ }
   }
-  render();
+  try {
+    const text = await textPromise;
+    if (navigator.clipboard) await navigator.clipboard.writeText(text);
+    else document.execCommand("copy");
+    return true;
+  } catch (e) {
+    return false;
+  }
 }
 
 async function startAsyncGame() {
@@ -3829,16 +3847,14 @@ async function refreshShareLinkBox() {
 }
 
 async function copyShareLink() {
-  await refreshShareLinkBox();
   const box = document.getElementById("share-link-box");
-  box.select();
-  try {
-    if (navigator.clipboard) await navigator.clipboard.writeText(box.value);
-    else document.execCommand("copy");
-    document.getElementById("share-link-status").textContent = "Link copied! Send it to the next player.";
-  } catch (e) {
-    document.getElementById("share-link-status").textContent = "Couldn't auto-copy — select the text above and copy manually.";
-  }
+  if (box && state.gameStarted) box.value = "Generating...";
+  // not awaited here on purpose -- see copyTextToClipboardAsync() for why
+  const linkPromise = generateShareLink().then((link) => { if (box) box.value = link; return link; });
+  const ok = await copyTextToClipboardAsync(linkPromise);
+  document.getElementById("share-link-status").textContent = ok
+    ? "Link copied! Send it to the next player."
+    : "Couldn't auto-copy — select the text above and copy manually.";
 }
 
 /* =========================================================
