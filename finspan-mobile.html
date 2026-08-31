@@ -20,6 +20,7 @@
     --danger: #d1573f;
     --ok: #3aa671;
     --source-highlight: #3b82f6;
+    --hand-height: 100px;
   }
   * {
     box-sizing: border-box;
@@ -303,19 +304,36 @@
   #queue-region .actions { display: flex; gap: 6px; margin-top: 6px; }
 
   /* ---- hand ---- */
+  #hand-wrap { flex: 0 0 auto; position: relative; }
   #hand-region {
-    flex: 0 0 auto;
+    height: var(--hand-height);
     background: var(--panel-2);
     border-top: 1px solid var(--border);
     padding: 8px;
     display: flex;
+    align-items: center;
     gap: 8px;
     overflow-x: auto;
   }
+  /* small pill button straddling #hand-region's top border, centered — not a full-width bar */
+  #hand-resize-handle {
+    position: absolute; top: 0; left: 50%; transform: translate(-50%, -50%);
+    z-index: 5;
+    width: 44px; min-width: 0; height: 22px; min-height: 0;
+    padding: 0; border-radius: 11px;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--panel-2); border: 1px solid var(--border);
+    touch-action: none; /* dragging vertically must never scroll the page instead */
+  }
+  /* overrides the global button:active scale (which would otherwise replace, not combine with,
+     the translate(-50%,-50%) centering above and knock the handle off-center while pressed) */
+  #hand-resize-handle:not(:disabled):active { transform: translate(-50%, -50%) scale(0.94); }
+  .hand-resize-grip { width: 22px; height: 4px; border-radius: 2px; background: var(--border); }
+  #hand-resize-handle:active .hand-resize-grip, #hand-resize-handle.dragging .hand-resize-grip { background: var(--accent); }
   /* shared by hand + discard strips: same size/ratio and nested image-div approach as the board's .board-slot/.slot-fish-img */
   .mini-card {
     flex: 0 0 auto;
-    height: 84px;
+    height: 100%;
     aspect-ratio: 1.35 / 1;
     border-radius: 8px;
     border: 2px solid transparent;
@@ -507,7 +525,10 @@
     <div class="actions" id="queue-actions"></div>
   </div>
 
-  <div id="hand-region"></div>
+  <div id="hand-wrap">
+    <button id="hand-resize-handle" aria-label="Drag to resize hand"><span class="hand-resize-grip"></span></button>
+    <div id="hand-region"></div>
+  </div>
 
   <div id="bottom-nav">
     <button data-drawer="lobby" id="nav-lobby" aria-label="Lobby"><span class="hamburger-icon"></span></button>
@@ -3331,7 +3352,7 @@ function wirePressFeedback() {
 // every container above -- but this listener stays as a hard backstop even without it). A tap
 // itself never needs touchmove, so unconditionally cancelling it for these elements costs nothing.
 function wireNoScrollBackstop() {
-  const ALWAYS_NO_SCROLL = ".token, .dive-btn, button";
+  const ALWAYS_NO_SCROLL = ".token, .dive-btn, button, #hand-resize-handle";
   document.body.addEventListener("touchmove", (e) => {
     if (e.target.closest(ALWAYS_NO_SCROLL)) { e.preventDefault(); return; }
     // .board-slot only needs this while it's actually touch-action:none (a hand card is
@@ -3340,9 +3361,64 @@ function wireNoScrollBackstop() {
   }, { passive: false });
 }
 
+// Drag-to-resize for the hand strip: the handle above #hand-region tracks pointerdown/move/up
+// via pointer capture (so the drag keeps working even once the finger strays off the thin
+// handle itself), adjusting the --hand-height custom property that both #hand-region and every
+// .mini-card's height:100% are driven by, so cards visibly scale with the region instead of
+// staying pinned at a fixed size while empty space grows around them.
+const HAND_HEIGHT_STORAGE_KEY = "finspan-hand-height";
+const HAND_HEIGHT_MIN = 70;
+const HAND_HEIGHT_DEFAULT = 100; // matches --hand-height's initial value in :root
+const HAND_TAP_MOVE_THRESHOLD = 6; // px of finger movement before a press counts as a drag, not a tap
+function handHeightMax() { return Math.round(window.innerHeight * 0.45); }
+function setHandHeight(px) {
+  const clamped = Math.max(HAND_HEIGHT_MIN, Math.min(handHeightMax(), Math.round(px)));
+  document.documentElement.style.setProperty("--hand-height", clamped + "px");
+  try { localStorage.setItem(HAND_HEIGHT_STORAGE_KEY, String(clamped)); } catch (e) { /* private browsing / storage disabled -- just skip persisting */ }
+  return clamped;
+}
+function loadSavedHandHeight() {
+  try {
+    const raw = localStorage.getItem(HAND_HEIGHT_STORAGE_KEY);
+    if (raw) return parseInt(raw, 10);
+  } catch (e) { /* private browsing / storage disabled */ }
+  return null;
+}
+// Dragging live-resizes as before, but a genuine tap (released before the finger has moved past
+// HAND_TAP_MOVE_THRESHOLD) instead toggles between the default height and the max — so a quick
+// tap is a shortcut for "make it big to see cards" / "put it back", while a real drag still
+// gives free-form control over the exact height.
+function wireHandResizeHandle() {
+  const handle = document.getElementById("hand-resize-handle");
+  const region = document.getElementById("hand-region");
+  let startY = 0, startHeight = 0, moved = false;
+  handle.addEventListener("pointerdown", (e) => {
+    startY = e.clientY;
+    startHeight = region.getBoundingClientRect().height;
+    moved = false;
+    handle.classList.add("dragging");
+    handle.setPointerCapture(e.pointerId);
+  });
+  handle.addEventListener("pointermove", (e) => {
+    if (!handle.classList.contains("dragging")) return;
+    const delta = startY - e.clientY; // dragging up (clientY decreases) grows the hand
+    if (!moved && Math.abs(delta) < HAND_TAP_MOVE_THRESHOLD) return; // still within tap tolerance
+    moved = true;
+    setHandHeight(startHeight + delta);
+  });
+  handle.addEventListener("pointerup", () => {
+    handle.classList.remove("dragging");
+    if (moved) return;
+    const current = region.getBoundingClientRect().height;
+    setHandHeight(current >= handHeightMax() - 2 ? HAND_HEIGHT_DEFAULT : handHeightMax());
+  });
+  handle.addEventListener("pointercancel", () => handle.classList.remove("dragging"));
+}
+
 function wireEvents() {
   wirePressFeedback();
   wireNoScrollBackstop();
+  wireHandResizeHandle();
   wireDevTiming();
   document.getElementById("clear-dev-timing-btn").addEventListener("click", () => {
     devTiming.log = [];
@@ -3875,6 +3951,8 @@ async function boot() {
   state.net.pendingPeerInputs = [];
   document.getElementById("app-version").textContent = "Finspan v" + APP_VERSION;
   wireEvents();
+  const savedHandHeight = loadSavedHandHeight();
+  if (savedHandHeight) setHandHeight(savedHandHeight);
   await tryLoadFromHash();
   const savedUsername = loadSavedUsername();
   if (savedUsername) initPeer(savedUsername); // a username is required to open a PeerJS connection; without one, the user picks one in the Lobby and taps Connect
