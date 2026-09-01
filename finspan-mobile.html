@@ -246,10 +246,6 @@
   /* the starting Forage Fish pieces show a plain recycle icon instead of card art — see renderSlot() */
   .slot-fish-img.forage-slot { display: flex; align-items: center; justify-content: center; background-color: #12293e; }
   .forage-icon { width: 55%; height: 55%; opacity: 0.8; }
-  .slot-tucked-badge {
-    position: absolute; bottom: 2px; right: 2px; background: rgba(0,0,0,0.55); color: #fff;
-    font-size: 9px; border-radius: 4px; padding: 1px 4px;
-  }
   .slot-tokens { position: absolute; bottom: -6px; left: -6px; right: -6px; display: flex; gap: 2px; flex-wrap: wrap; }
   .token {
     width: 20px; height: 20px; border-radius: 6px; border: 1px solid rgba(0,0,0,0.5);
@@ -264,6 +260,10 @@
   .token-young { background: #e0e440; }
   .token-egg { background: #d55943; }
   .token-school { background: #ae003f; }
+  .token-tucked { background: #4a4a4a; }
+  /* pushes this (consumed-fish) chip and any following it to the right end of .slot-tokens'
+     flex row, keeping young/egg/school left-aligned as before — opposite corners, one row */
+  .token-tucked.tucked-first { margin-left: auto; }
   .token.selected { box-shadow: 0 0 0 2px #fff, 0 0 6px 2px #fff700; }
   .token img { width: 13px; height: 13px; }
   .token:active, .token.pressed { transform: scale(1.2); }
@@ -2365,6 +2365,12 @@ function renderSlot(row, col, player, isOwnPanel) {
   if (b.schools[row][col] === 1 || (b.young[row][col] >= 3 && b.schools[row][col] === 0)) {
     tokensHtml += `<div class="token token-school${schoolSelected || isMoveSrc ? " selected" : ""}" data-target="school" data-row="${row}" data-col="${col}" style="${b.schools[row][col] === 0 ? "opacity:0.45;" : ""}"><img src="${ICONS.school}" class="icon"/></div>`;
   }
+  // consumed (tucked) fish sit opposite young/egg/school -- "tucked-first" pushes this whole
+  // trailing group to the right end of the same flex row via margin-left:auto, instead of a
+  // separate "x2" text badge
+  for (let i = 0; i < tucked.length; i++) {
+    tokensHtml += `<div class="token token-tucked${i === 0 ? " tucked-first" : ""}"><img src="${ICONS.tucked}" class="icon"/></div>`;
+  }
 
   // the starting "Forage Fish" pieces point at the sprite sheet's card-BACK design (there's no
   // real per-species art for them), which intermittently fails to actually paint as a
@@ -2376,7 +2382,6 @@ function renderSlot(row, col, player, isOwnPanel) {
   return `<div class="board-slot${valid ? " can-drop" : ""}${sourceHighlight ? " source-highlight" : ""}" data-row="${row}" data-col="${col}">
     <div class="slot-fish-img${isForage ? " forage-slot" : ""}" data-target="fish" data-row="${row}" data-col="${col}" style="${bg}">
       ${isForage ? `<img src="${ICONS.recycle}" class="icon forage-icon"/>` : ""}
-      ${tucked.length ? `<span class="slot-tucked-badge">x${tucked.length}</span>` : ""}
     </div>
     <div class="slot-tokens">${tokensHtml}</div>
   </div>`;
@@ -2668,7 +2673,7 @@ function renderQueuePanel() {
         : `<span style="display:inline-block;width:22px;height:26px;border-radius:3px;font-size:7px;overflow:hidden;">${gameEndBadgeHtml()}</span>`;
       continue;
     }
-    const src = iconFor(it.type);
+    const src = it.label === "tuck" ? ICONS.tucked : iconFor(it.type);
     iconsHtml += src
       ? `<img src="${src}" class="icon"/>${restrictionIconHtml(it)}`
       : `<span style="font-size:11px;background:var(--panel-2);border-radius:4px;padding:2px 4px;">${escapeHtml(it.label || it.type)}</span>`;
@@ -2682,8 +2687,8 @@ function renderQueuePanel() {
       const have = state.selections.filter((s) => s.type === item).length;
       const idxAmongSame = q0.cost.slice(0, q0.cost.indexOf(item)).filter((c) => c === item).length;
       const satisfied = have > idxAmongSame || item === "tuck";
-      const icon = item === "tuck" ? null : (ICONS[item] || ICONS.drawCard);
-      return `<div class="cost-item${satisfied ? " satisfied" : ""}">${item === "tuck" ? "tuck" : (icon ? `<img src="${icon}"/>` : item)}</div>`;
+      const icon = item === "tuck" ? ICONS.tucked : (ICONS[item] || ICONS.drawCard);
+      return `<div class="cost-item${satisfied ? " satisfied" : ""}"><img src="${icon}"/></div>`;
     }).join("");
   }
   document.getElementById("cost-items").innerHTML = costHtml;
