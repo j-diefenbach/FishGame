@@ -38,7 +38,7 @@
     overscroll-behavior: none;
     user-select: none;
   }
-  /* every tappable icon/card in this game is an <img> or a background-image div — without
+  /* every tappable icon/card in this game is an <img> or a background-image div. Without
      these, iOS can intercept a tap as "start of Save Image" (touch-callout) or "start of
      dragging this image" (user-drag), both of which add hesitation before a tap registers,
      or occasionally pop up native UI instead of reaching the game at all */
@@ -58,8 +58,8 @@
     cursor: pointer;
     transition: transform 0.08s ease-out, filter 0.08s ease-out;
     will-change: transform;
-    /* buttons never need to themselves start a pan gesture — there's always non-button space
-       to grab for scrolling — so tell WebKit not to even consider that possibility for them.
+    /* buttons never need to themselves start a pan gesture; there's always non-button space
+       to grab for scrolling, so tell WebKit not to even consider that possibility for them.
        touch-action:manipulation (set globally) still *permits* panning, which means WebKit has
        to wait to see whether your finger moves before it'll commit to firing click; that wait
        is worse here since .dive-btn sits inside two nested scrollable regions (the board strip
@@ -69,7 +69,7 @@
   }
   button:disabled { opacity: 0.35; cursor: default; }
   button.primary { background: var(--accent); color: #24160a; border-color: var(--accent); font-weight: 600; }
-  /* instant press feedback on every tappable element — this fires the moment a finger goes
+  /* instant press feedback on every tappable element: this fires the moment a finger goes
      down, at the browser's compositor, so it shows up well before any JS/render has run */
   button:not(:disabled):active, button.pressed:not(:disabled) { transform: scale(0.94); filter: brightness(1.15); }
   input[type=text] {
@@ -106,7 +106,7 @@
     font-size: 13px;
   }
   /* "is it my turn" collapses to a single colour highlight along the bottom edge of the bar,
-     instead of a text pill — each player's own board panel carries their name + turn state */
+     instead of a text pill; each player's own board panel carries their name + turn state */
   #status-bar.my-turn-glow { border-bottom-color: var(--accent); }
   .status-row1 { display: flex; align-items: center; gap: 8px; }
   #status-bar .round-bonuses { display: flex; gap: 6px; }
@@ -172,7 +172,7 @@
     height: 100%;
     overflow-y: auto;
     /* -webkit-overflow-scrolling:touch forces the legacy native (UIScrollView-backed) momentum
-       scroller, which bypasses touch-action on descendants entirely — a touch-action:none token
+       scroller, which bypasses touch-action on descendants entirely, so a touch-action:none token
        or dive-btn nested in here could still drag-scroll the panel despite the CSS saying it
        shouldn't be able to. iOS 13+ already gives plain overflow:auto momentum scrolling without
        this flag, so it's just left off. */
@@ -204,7 +204,7 @@
   .zone-reward-cell img { width: 18px; height: 18px; }
   .zone-reward-cell.dim { opacity: 0.3; filter: grayscale(70%); }
   /* marks the zone-reward cell that generated the queue's current front step (a dive-site
-     zone bonus) — see "action source" highlight below on .board-slot for the card-triggered
+     zone bonus); see "action source" highlight below on .board-slot for the card-triggered
      equivalent */
   .zone-reward-cell.source-highlight { box-shadow: 0 0 0 2px var(--source-highlight), 0 0 8px 3px var(--source-highlight); opacity: 1; filter: none; }
   .board-grid {
@@ -225,11 +225,11 @@
        still be scrolled by dragging directly on a slot when there's nothing to tap-place yet.
        Once a hand card is selected, body.card-selected below switches every slot to tap-only
        (no pan) so placing it activates immediately on pointerdown instead of waiting through
-       WebKit's tap-vs-scroll disambiguation -- see canStartNewAction()-adjacent selection state. */
+       WebKit's tap-vs-scroll disambiguation - see canStartNewAction()-adjacent selection state. */
   }
   body.card-selected .board-slot { touch-action: none; }
-  /* marks whichever fish's cell is the "action source" of the queue's current front step —
-     the card whose ability/cost/dive-site trigger produced it — mirroring the original app's
+  /* marks whichever fish's cell is the "action source" of the queue's current front step:
+     the card whose ability/cost/dive-site trigger produced it, mirroring the original app's
      boxShadow-on-source-cell behaviour so it's obvious which card a queue prompt belongs to */
   .board-slot.source-highlight { box-shadow: 0 0 0 3px var(--source-highlight), 0 0 12px 4px var(--source-highlight); }
   .board-slot[data-col="0"] { background-color: #1a3c5c; }
@@ -237,13 +237,13 @@
   .board-slot[data-col="2"] { background-color: #1a4c3c; }
   .board-slot.can-drop { box-shadow: 0 0 0 3px var(--accent) inset; }
   .board-slot.blocked { filter: brightness(0.6); }
-  /* instant tap feedback — shows the moment a finger goes down, no waiting on JS/render */
+  /* instant tap feedback: shows the moment a finger goes down, no waiting on JS/render */
   .board-slot:active, .board-slot.pressed { box-shadow: 0 0 0 2px var(--accent) inset; }
   .slot-fish-img {
     position: absolute; inset: 2px; border-radius: 6px; background-size: cover; background-repeat: no-repeat;
     border: 1px solid rgba(0,0,0,0.4);
   }
-  /* the starting Forage Fish pieces show a plain recycle icon instead of card art — see renderSlot() */
+  /* the starting Forage Fish pieces show a plain recycle icon instead of card art (see renderSlot()) */
   .slot-fish-img.forage-slot { display: flex; align-items: center; justify-content: center; background-color: #12293e; }
   .forage-icon { width: 55%; height: 55%; opacity: 0.8; }
   .slot-tokens { position: absolute; bottom: -6px; left: -6px; right: -6px; display: flex; gap: 2px; flex-wrap: wrap; }
@@ -253,7 +253,7 @@
     transition: transform 0.08s ease-out;
     will-change: transform;
     /* tokens are small, precise tap targets sitting on top of .board-slot (which stays
-       pannable) — panning can still start on the slot around/behind a token, so this doesn't
+       pannable); panning can still start on the slot around/behind a token, so this doesn't
        cost any scrollability, it just removes the tap-vs-pan wait specifically on the token */
     touch-action: none;
   }
@@ -262,7 +262,7 @@
   .token-school { background: #ae003f; }
   .token-tucked { background: #4a4a4a; }
   /* pushes this (consumed-fish) chip and any following it to the right end of .slot-tokens'
-     flex row, keeping young/egg/school left-aligned as before — opposite corners, one row */
+     flex row, keeping young/egg/school left-aligned as before (opposite corners, one row) */
   .token-tucked.tucked-first { margin-left: auto; }
   .token.selected { box-shadow: 0 0 0 2px #fff, 0 0 6px 2px #fff700; }
   .token img { width: 13px; height: 13px; }
@@ -315,7 +315,7 @@
     gap: 8px;
     overflow-x: auto;
   }
-  /* small pill button straddling #hand-region's top border, centered — not a full-width bar */
+  /* small pill button straddling #hand-region's top border, centered, not a full-width bar */
   #hand-resize-handle {
     position: absolute; top: 0; left: 50%; transform: translate(-50%, -50%);
     z-index: 5;
@@ -341,7 +341,7 @@
     position: relative;
     transition: transform 0.08s ease-out;
     will-change: transform;
-    /* touch-action:manipulation (inherited from the global rule) on purpose — cards need to
+    /* touch-action:manipulation (inherited from the global rule) on purpose - cards need to
        stay draggable themselves so the hand strip can be scrolled by dragging directly on a
        card, not just the gaps between them; click is the correct event here so the browser can
        still resolve tap-vs-pan and suppress the click when a touch turns into a scroll */
@@ -356,7 +356,7 @@
   .mini-card.unaffordable { filter: grayscale(70%) brightness(0.6); }
   .mini-card.fromhand-target { box-shadow: 0 0 0 3px var(--accent); }
 
-  /* discard-pile cards, appended after the hand cards in the same #hand-region strip -- a
+  /* discard-pile cards, appended after the hand cards in the same #hand-region strip - a
      different background colour (echoing the old separate discard strip's dark red) is the only
      thing that marks them apart, since they're no longer in their own section of the screen */
   .mini-card.discard-card { background-color: #3a1414; border-color: #6b2a2a; }
@@ -369,15 +369,15 @@
     border-left: 1px solid var(--border);
     padding-left: 8px;
   }
-  /* read-only hand+discard peek at the bottom of an OPPONENT's board panel — see
-     peekHandDiscardStrip() — a horizontal scroller nested inside the panel's own vertical
+  /* read-only hand+discard peek at the bottom of an OPPONENT's board panel - see
+     peekHandDiscardStrip() - a horizontal scroller nested inside the panel's own vertical
      scroll, same card art/sizing as the real (interactive) hand/discard strips */
   .peek-hand-strip {
     display: flex; gap: 6px; overflow-x: auto;
     padding: 4px 2px 2px;
     margin-top: 2px;
     /* without this, overflow-x:auto gives this item an automatic minimum size of 0 along the
-       parent's (column) main axis — since .player-board-panel's content overflows and needs to
+       parent's (column) main axis - since .player-board-panel's content overflows and needs to
        shrink somewhere, flexbox preferentially collapses THIS item toward that 0 floor instead
        of the other rows (which have no overflow set, so keep their content-based floor) */
     flex-shrink: 0;
@@ -410,7 +410,7 @@
   }
   .hamburger-icon::before { top: -6px; }
   .hamburger-icon::after { top: 6px; }
-  /* small jump-to-top/bottom buttons next to the hamburger -- fixed narrow width rather than
+  /* small jump-to-top/bottom buttons next to the hamburger - fixed narrow width rather than
      the flex:1 the other nav buttons use, since these are icon-only and don't need to be wide */
   #bottom-nav button.nav-scroll-btn { flex: 0 0 40px; }
   .scroll-arrow-icon {
@@ -590,7 +590,7 @@
           <h2 style="font-size:15px;margin:0;flex:1;">Dev Timing Log</h2>
           <button id="clear-dev-timing-btn">Clear</button>
         </div>
-        <p style="font-size:11px;color:var(--text-dim);margin:0 0 8px;">Measures real touch-event timing on this device — how long between finger-down, finger-up, the browser's click, and this page's own render() work. Useful for tracking down tap lag on an actual phone.</p>
+        <p style="font-size:11px;color:var(--text-dim);margin:0 0 8px;">Measures real touch-event timing on this device - how long between finger-down, finger-up, the browser's click, and this page's own render() work. Useful for tracking down tap lag on an actual phone.</p>
         <div id="dev-timing-list" style="font-family:monospace;font-size:11px;display:flex;flex-direction:column;gap:2px;max-height:240px;overflow-y:auto;"></div>
       </div>
     </div>
@@ -655,7 +655,7 @@ const IMAGE_BASE = "public/images/";
 const ICON_BASE = "https://navarog.github.io/finsearch/static/media/";
 
 // PeerJS's default cloud broker is a single global namespace shared by every app that uses it,
-// not just this one -- so a bare username like "alice" could collide with a totally unrelated
+// not just this one - so a bare username like "alice" could collide with a totally unrelated
 // stranger's random PeerJS session from some other app. Prefixing every id this app registers
 // with a fixed, app-specific string keeps this app's usernames in their own corner of that
 // namespace; two players of THIS app can still collide with each other on username choice, but
@@ -675,7 +675,7 @@ function loadSavedUsername() {
   try { return localStorage.getItem(USERNAME_STORAGE_KEY) || ""; } catch (e) { return ""; }
 }
 function saveUsername(username) {
-  try { localStorage.setItem(USERNAME_STORAGE_KEY, username); } catch (e) { /* private browsing / storage disabled -- just skip persisting */ }
+  try { localStorage.setItem(USERNAME_STORAGE_KEY, username); } catch (e) { /* private browsing / storage disabled - just skip persisting */ }
 }
 
 const ICONS = {
@@ -725,7 +725,7 @@ const CARD_ART_ZOOM = 1.08;
 
 // original Steam Workshop hosting for each sheet, used as a backup source if the local
 // copy under IMAGE_BASE isn't available (e.g. the images/ folder wasn't deployed alongside
-// this file) — keyed by the same sheet hash used everywhere else
+// this file) - keyed by the same sheet hash used everywhere else
 const STEAM_SHEET_URLS = {
   "6495D42FD5F553CF1CE53CCC425EEFDC0EC81C36": "https://steamusercontent-a.akamaihd.net/ugc/12934413406950940637/6495D42FD5F553CF1CE53CCC425EEFDC0EC81C36/",
   "25050BEA084E38D38C97EDCA6388CB36AD53C6D2": "https://steamusercontent-a.akamaihd.net/ugc/11821613455990366254/25050BEA084E38D38C97EDCA6388CB36AD53C6D2/",
@@ -747,8 +747,26 @@ function probeSheetAvailability(hash) {
   if (hash in sheetImageSource || !STEAM_SHEET_URLS[hash]) return;
   sheetImageSource[hash] = "local";
   const img = new Image();
+  // a board-slot's own background-image request and this probe both fire at the same moment,
+  // so on a cold cache (most commonly: the very first time a shared turn link is opened on a
+  // device, before its browser has ever fetched this sheet) the slot can finish painting BEFORE
+  // the multi-MB sheet has actually downloaded, leaving it blank - background-image has no
+  // load/error event of its own to catch that, which is exactly why this probe Image() exists.
+  // It previously only reacted to onerror (the local-vs-steam fallback), leaving the "still
+  // downloading" case to fix itself only whenever some unrelated render happened to fire next -
+  // in practice, the next turn's link, opened once this sheet was already cached, which is
+  // exactly the "spontaneously comes back next turn" symptom this was causing.
+  // state.boardDirty is forced here (not just a plain render()) because renderBoard()'s normal
+  // fast path only ever patches YOUR OWN panel - opponents' panels are intentionally left alone
+  // on every other render for performance. That's fine for gameplay actions (which only ever
+  // change your own board on your turn), but an image finishing its download can affect ANY
+  // panel on screen, including opponents', so this one needs the full rebuild. It's cheap here
+  // specifically because it only runs once per unique sheet for the whole session (guarded by
+  // the `hash in sheetImageSource` check above), not on every tap.
+  img.onload = () => { state.boardDirty = true; render(); };
   img.onerror = () => {
     sheetImageSource[hash] = "steam";
+    state.boardDirty = true;
     render();
   };
   img.src = `${IMAGE_BASE}${hash}.png`;
@@ -1876,7 +1894,7 @@ function setupGame(playerInfos, roundBonuses, deckOrder, gameId) {
 
 // background-size/background-position pair for one axis of a sprite-sheet cell, zoomed in by
 // `zoom` around the cell's own center (not the sheet's) so the crop stays anchored on that
-// cell's art no matter how far zoomed -- this is what lets CARD_ART_ZOOM crop away the sliver
+// cell's art no matter how far zoomed - this is what lets CARD_ART_ZOOM crop away the sliver
 // of neighboring-cell bleed without needing to know the sheet's exact gutter width.
 function spriteAxis(index, count, zoom) {
   if (count <= 1) return { size: 100 * zoom, pos: 0 };
@@ -1907,7 +1925,7 @@ function roundBonusCardStyle(idx) {
 }
 
 // the fixed "game end" bonus has no card-sheet art at all (its old local-only image never had
-// a working remote backup) — it's rendered as plain HTML/CSS instead of an <img>/background-image
+// a working remote backup) - it's rendered as plain HTML/CSS instead of an <img>/background-image
 function gameEndBadgeHtml() {
   return `<div class="game-end-badge">GAME<br>END</div>`;
 }
@@ -1983,12 +2001,12 @@ function pushQueueStepFront(steps) {
   state.queue.unshift(...steps.map((s) => Object.assign({ ownerId: state.activePlayerId }, s)));
 }
 
-// The single definition of "nothing left to resolve" -- checked against state.queue[0] itself
+// The single definition of "nothing left to resolve" - checked against state.queue[0] itself
 // (matching what actually gates every action) rather than state.queue.length, so the "End Turn"
 // button the UI shows can never disagree with whether a new action is actually allowed to start.
 function queueIsEmpty() { return !state.queue[0]; }
 
-// Each turn allows exactly one NEW action (playing a card, or activating a dive site) -- once
+// Each turn allows exactly one NEW action (playing a card, or activating a dive site) - once
 // state.actedThisTurn is true, only the CURRENT action's own resolution (its cost step, its
 // ability-reward steps) may continue via the queue; a second, independent action has to wait
 // for the next turn (see endTurn()/nextPlayerInOrder()). queueIsEmpty() alone can't tell these
@@ -1997,7 +2015,7 @@ function canStartNewAction() { return isMyTurn() && queueIsEmpty() && !state.act
 
 // "action source" highlight: every queue step carries sourceRow/sourceCol (plus, for dive-site
 // zone bonuses, source:"dive site" and sourceRow as a zone key instead of a board row) marking
-// whatever put it in the queue -- a card's cost/ability, or a dive-site zone reward. These check
+// whatever put it in the queue - a card's cost/ability, or a dive-site zone reward. These check
 // whether the CURRENT front-of-queue step's source matches a given board cell / zone-reward cell,
 // so that cell can be highlighted blue the moment that step becomes the one being resolved.
 function queueSourceIsCell(row, col) {
@@ -2042,9 +2060,9 @@ function abilityToQueueSteps(rewardTokens, ctx) {
 }
 
 // Reward-granting steps (young/egg/school/card/fish-from-hand/hatch/move) are self-explanatory
-// from their queue icon (plus the restriction icon — see restrictionIconHtml()) and the
-// can-drop/source highlighting already on the board, so — matching the original app.js, which
-// never had prompt text for these at all — they return no text here. Only steps needing an
+// from their queue icon (plus the restriction icon - see restrictionIconHtml()) and the
+// can-drop/source highlighting already on the board, so - matching the original app.js, which
+// never had prompt text for these at all - they return no text here. Only steps needing an
 // instruction beyond "tap the highlighted thing" (a resource cost, a choice with a
 // non-obvious alternative, or a full-screen/meta action) keep one.
 function queueLabel(step) {
@@ -2059,14 +2077,14 @@ function queueLabel(step) {
     case QUEUE.FISH_FROM_HAND: return "";
     case QUEUE.MOVE: return "";
     case QUEUE.HATCH: return "";
-    case QUEUE.END_ROUND: return "Round complete — tap End Round";
+    case QUEUE.END_ROUND: return "Round complete - tap End Round";
     case QUEUE.END_GAME_ABILITY: return "Tap a 'game end' fish to trigger it, or Done when finished";
-    default: return "Unimplemented ability (" + (step.label || step.type) + ") — tap Done to skip";
+    default: return "Unimplemented ability (" + (step.label || step.type) + ") - tap Done to skip";
   }
 }
 
 // restriction icon shown after a queue step's own icon (e.g. an egg icon followed by an arrow
-// and a purple flipper icon for "egg on every purple") — ported from the original app.js's
+// and a purple flipper icon for "egg on every purple") - ported from the original app.js's
 // getIconFromName()/ArrowDown pairing. A second arrow is shown for "every"/"each" restrictions
 // (matching the original: eggs, which are always "on every", always got two).
 const RESTRICTION_ICONS = {
@@ -2102,7 +2120,7 @@ function finishQueueStep(opts) {
 }
 
 function afterQueueChange() {
-  // no auto-resolution here by design — every step needs a tap. This just checks
+  // no auto-resolution here by design - every step needs a tap. This just checks
   // whether the queue is now empty and, if so, whether a round/game boundary is reached.
   render();
 }
@@ -2123,7 +2141,7 @@ function checkUsesForRoundEnd(player) {
    ========================================================= */
 
 // finds the next player (in turn order) who still has actions left this round/game,
-// skipping anyone already done — a round consists of up to 6 turns per player, not
+// skipping anyone already done - a round consists of up to 6 turns per player, not
 // one shared pool of 6 turns for the whole table
 function nextPlayerInOrder(id) {
   const order = state.playerOrder;
@@ -2173,10 +2191,10 @@ async function endTurn() {
 
   if (state.isAsyncGame) {
     if (state.isPassAndPlay) {
-      // same device keeps going as the next player -- no link/handoff needed, just hand the
+      // same device keeps going as the next player - no link/handoff needed, just hand the
       // phone over and swap whose hand/board is "yours" for the rest of this session.
       // renderBoard()'s fast path only ever patches the panel matching myPlayerId, reusing a
-      // DOM-element cache keyed by (row,col) alone -- it was never built to handle myPlayerId
+      // DOM-element cache keyed by (row,col) alone - it was never built to handle myPlayerId
       // itself changing mid-session (only live P2P mode does that, once per browser tab, before
       // any panels exist yet), so without forcing a full rebuild here the stale cache would keep
       // pointing at the PREVIOUS own player's board cells even after this reassignment.
@@ -2185,13 +2203,13 @@ async function endTurn() {
       render();
     } else {
       // link-based async games have no live connection to push the update through, so the
-      // player who just finished needs a link to hand off — copy it straight to the clipboard,
+      // player who just finished needs a link to hand off - copy it straight to the clipboard,
       // no popup to dismiss first. generateShareLink() is NOT awaited here on purpose (see
       // copyTextToClipboardAsync()) so the clipboard write stays tied to this tap's own gesture.
       const ok = await copyTextToClipboardAsync(generateShareLink());
       pushLog(ok
-        ? "Turn link copied to clipboard — send it to the next player."
-        : "Couldn't copy the turn link automatically — open the Lobby to copy it manually.");
+        ? "Turn link copied to clipboard - send it to the next player."
+        : "Couldn't copy the turn link automatically - open the Lobby to copy it manually.");
       render();
     }
   }
@@ -2211,7 +2229,7 @@ function computeRoundBonusPoints(round, board) {
 function finalizeRoundEnd() {
   // scores just the active player's own round bonus and marks them done for this round;
   // the round only actually advances (resetting everyone's turns) once every player has
-  // used all 6 of their turns — a round is 6 turns per player, not 6 turns shared by the table
+  // used all 6 of their turns - a round is 6 turns per player, not 6 turns shared by the table
   const player = state.players[state.activePlayerId];
   const points = computeRoundBonusPoints(state.currentRound, player.board);
   player.roundPoints[state.currentRound - 1] = points;
@@ -2266,7 +2284,7 @@ function saveHistorySnapshot() {
 function restoreHistorySnapshot() {
   // history's top entry always mirrors the current live state (each action pushes a
   // fresh snapshot right after it runs). To undo, discard that stale "current" entry
-  // and restore to whatever is now on top (the state as of the previous action) —
+  // and restore to whatever is now on top (the state as of the previous action) -
   // leaving that entry in place so it continues to mirror the (now current) state.
   if (!isMyTurn() || state.history.length < 2) return;
   state.history.pop();
@@ -2290,7 +2308,7 @@ function applySharedState(shared) {
   state.selections = [];
   state.selectedInstanceId = null;
   state.actedThisTurn = false;
-  state.boardDirty = true; // another player's boards just arrived over the network — full rebuild next render
+  state.boardDirty = true; // another player's boards just arrived over the network - full rebuild next render
 }
 
 /* =========================================================
@@ -2365,7 +2383,7 @@ function renderSlot(row, col, player, isOwnPanel) {
   if (b.schools[row][col] === 1 || (b.young[row][col] >= 3 && b.schools[row][col] === 0)) {
     tokensHtml += `<div class="token token-school${schoolSelected || isMoveSrc ? " selected" : ""}" data-target="school" data-row="${row}" data-col="${col}" style="${b.schools[row][col] === 0 ? "opacity:0.45;" : ""}"><img src="${ICONS.school}" class="icon"/></div>`;
   }
-  // consumed (tucked) fish sit opposite young/egg/school -- "tucked-first" pushes this whole
+  // consumed (tucked) fish sit opposite young/egg/school - "tucked-first" pushes this whole
   // trailing group to the right end of the same flex row via margin-left:auto, instead of a
   // separate "x2" text badge
   for (let i = 0; i < tucked.length; i++) {
@@ -2374,7 +2392,7 @@ function renderSlot(row, col, player, isOwnPanel) {
 
   // the starting "Forage Fish" pieces point at the sprite sheet's card-BACK design (there's no
   // real per-species art for them), which intermittently fails to actually paint as a
-  // background-image on these cells when a game is set up fresh or loaded from an async link —
+  // background-image on these cells when a game is set up fresh or loaded from an async link -
   // shown as a simple recycle icon instead, sidestepping that image entirely rather than
   // depending on it to load
   const isForage = !!fish && fish.tags && fish.tags.includes("forage");
@@ -2387,9 +2405,9 @@ function renderSlot(row, col, player, isOwnPanel) {
   </div>`;
 }
 
-// one player's full board (dive row, zones, grid) — used to build one panel of the
+// one player's full board (dive row, zones, grid) - used to build one panel of the
 // horizontally swipeable board-wrap strip, one panel per player in turn order
-// the dive row + zones + grid for one player's board — split out from renderBoardPanel() so
+// the dive row + zones + grid for one player's board - split out from renderBoardPanel() so
 // the fast path in renderBoard() can refresh just your own panel's contents without touching
 // (or re-decoding the card art images inside) every other player's panel on every tap
 function renderBoardPanelInner(player, isOwnPanel) {
@@ -2439,7 +2457,7 @@ function renderBoardPanelInner(player, isOwnPanel) {
 
   // other players' hand + discard aren't hidden info in this port (no secret-hand mechanic),
   // so a read-only horizontal strip at the bottom of their panel lets you see what they're
-  // holding — same card art as your own hand/discard strip, just not tappable. Only shown on
+  // holding - same card art as your own hand/discard strip, just not tappable. Only shown on
   // opponents' panels: your own hand/discard already has its own strip at the bottom of the
   // whole screen (#hand-region), so repeating it here would be redundant.
   function peekHandDiscardStrip() {
@@ -2471,11 +2489,11 @@ function renderBoardPanel(player, isOwnPanel) {
 
 // per-cell DOM + last-known-content cache for the currently-mounted "own panel". A full
 // string rebuild of all 18 cells (each with nested token/image elements) turned out to be the
-// real cost of render() on slower mobile JS engines — the orchestration itself is cheap, but
+// real cost of render() on slower mobile JS engines - the orchestration itself is cheap, but
 // reparsing ~18 cells' worth of markup through innerHTML, every tap, is not. Most taps only
 // actually change ONE cell (a token selected, a fish placed), so this compares a cheap string
 // "signature" of each cell's content against what's currently on screen and only touches the
-// DOM for cells that actually changed — the rest are skipped entirely, not just cheaply redrawn.
+// DOM for cells that actually changed - the rest are skipped entirely, not just cheaply redrawn.
 let ownPanelCellCache = null;
 
 function computeCellContentSignature(board, row, col) {
@@ -2492,7 +2510,7 @@ function computeCellContentSignature(board, row, col) {
 }
 
 // dive buttons + the small zone-reward/first-dive rows have no card art and are cheap to just
-// redraw outright every time — only the 18-cell grid below needs the signature-diff treatment
+// redraw outright every time - only the 18-cell grid below needs the signature-diff treatment
 function patchPanelChrome(myPanel, player) {
   const total = player.uses.playFish + player.uses.blueSite + player.uses.purpleSite + player.uses.greenSite;
   const canActivate = canStartNewAction() && total < 6;
@@ -2556,12 +2574,12 @@ function patchOwnPanelGrid(myPanel, player) {
   }
 }
 
-// renders one panel per player, side by side, in turn order — the strip scrolls/snaps
+// renders one panel per player, side by side, in turn order - the strip scrolls/snaps
 // horizontally (see #board-wrap CSS) so swiping left/right moves between players' boards.
 //
 // Full rebuilds (all panels' markup + card art regenerated) only happen when the panel set
 // itself is stale: game just (re)started, or a network/link sync just landed (state.boardDirty).
-// Every other call — i.e. essentially every tap during normal play — patches only your own
+// Every other call - i.e. essentially every tap during normal play - patches only your own
 // panel, and only the specific cells that actually changed within it (see patchOwnPanelGrid);
 // other players' panels just get their turn-highlight class kept in sync. This is what keeps
 // taps snappy even on slower mobile JS engines, once more than one board is mounted at a time.
@@ -2576,7 +2594,7 @@ function renderBoard() {
   if (state.boardDirty || !panelSetMatches) {
     const prevScrollLeft = container.scrollLeft;
     // each panel also scrolls independently on the vertical axis (a board is taller than the
-    // viewport) — rebuilding innerHTML destroys and recreates every panel node, which would
+    // viewport) - rebuilding innerHTML destroys and recreates every panel node, which would
     // otherwise silently reset both axes back to (0,0)
     const prevScrollTops = {};
     existing.forEach((panel) => { prevScrollTops[panel.dataset.player] = panel.scrollTop; });
@@ -2605,7 +2623,7 @@ function renderBoard() {
 
 // jumps whichever player panel is currently horizontally in view (#board-wrap scrolls
 // between players, each panel scrolls vertically on its own) to the top or bottom of its own
-// scroll -- used by the two small arrow buttons next to the hamburger icon in #bottom-nav.
+// scroll - used by the two small arrow buttons next to the hamburger icon in #bottom-nav.
 function scrollActiveBoardPanel(edge) {
   const wrap = document.getElementById("board-wrap");
   const panels = wrap.querySelectorAll(".player-board-panel");
@@ -2645,14 +2663,14 @@ function renderQueuePanel() {
   const region = document.getElementById("queue-region");
   const q0 = state.queue[0];
   // queue-prompt text is kept up to date (harmless, useful for debugging in devtools) but the
-  // element itself is permanently hidden via CSS — see .queue-prompt — so none of this is ever
+  // element itself is permanently hidden via CSS - see .queue-prompt - so none of this is ever
   // actually shown to the player; the icon row + board highlighting carry the UI on their own.
   const promptEl = document.getElementById("queue-prompt");
   if (!isMyTurn()) { region.classList.remove("visible"); return; }
   if (!q0) {
     if (!state.actedThisTurn) { region.classList.remove("visible"); return; }
     region.classList.add("visible");
-    promptEl.textContent = "Nothing left to resolve — end your turn.";
+    promptEl.textContent = "Nothing left to resolve - end your turn.";
     document.getElementById("queue-icons").innerHTML = "";
     document.getElementById("cost-items").innerHTML = "";
     document.getElementById("queue-actions").innerHTML = `<button id="end-turn-btn" class="primary">End Turn</button>`;
@@ -2712,7 +2730,7 @@ function renderQueuePanel() {
 
 function renderStatusBar() {
   // the "your turn" indicator is a single colour highlight along the bottom edge of the
-  // status bar rather than text — each player's own board panel already carries their name
+  // status bar rather than text - each player's own board panel already carries their name
   // and their own highlight when it's their turn, so this one is purely "is it MY turn".
   document.getElementById("status-bar").classList.toggle("my-turn-glow", state.gameStarted && !state.gameOver && isMyTurn());
 
@@ -2745,7 +2763,7 @@ function renderTurnDots() {
       return `<div class="turn-dot act-${act.type}" title="${escapeHtml(label)}"><img src="${ACTION_DOT_ICON[act.type]}"/></div>`;
     }
     const upcoming = i === nextIdx && isMyTurn();
-    return `<div class="turn-dot empty${upcoming ? " next-up" : ""}" title="Action ${i + 1} of 6 — not yet used"></div>`;
+    return `<div class="turn-dot empty${upcoming ? " next-up" : ""}" title="Action ${i + 1} of 6 - not yet used"></div>`;
   }).join("");
 }
 
@@ -2763,7 +2781,7 @@ function renderOpponents() {
       return `<div class="mini-slot" style="${bg}">${tok ? `<span class="mini-tok">${tok}</span>` : ""}</div>`;
     }).join("")).join("");
     return `<div class="opponent-block">
-      <h3>${escapeHtml(p.name)} ${id === state.activePlayerId ? "(active)" : ""} — hand: ${p.hand.length}, deck shared: ${state.deck.length}</h3>
+      <h3>${escapeHtml(p.name)} ${id === state.activePlayerId ? "(active)" : ""} - hand: ${p.hand.length}, deck shared: ${state.deck.length}</h3>
       <div class="mini-board">${rows}</div>
     </div>`;
   }).join("");
@@ -2845,7 +2863,7 @@ function isDrawerOpen(id) {
 // the board/hand/queue/status are the only things visible during normal play, so those are
 // the only sections rebuilt on every tap; the drawers (lobby, chat, log) are comparatively
 // expensive to rebuild (full peer list, full chat/action log) and invisible unless open, so
-// they're refreshed only while actually open — openDrawer() also refreshes them on open.
+// they're refreshed only while actually open - openDrawer() also refreshes them on open.
 // This is what keeps taps feeling instant: a hand-card selection no longer pays the cost of
 // re-rendering a 100-entry action log and the whole lobby on every single tap.
 function render() {
@@ -2855,7 +2873,7 @@ function render() {
   }
   // any element still showing "pressed" is about to be superseded by its real new state below
   // (board tokens/cards get fresh DOM nodes from innerHTML rebuilds anyway, but persistent
-  // elements like buttons need this explicit clear) — clearing it here, not on pointerup,
+  // elements like buttons need this explicit clear) - clearing it here, not on pointerup,
   // means the press feedback hands off directly into the real result with no neutral flash in between
   clearPressed();
   renderStatusBar();
@@ -3219,11 +3237,11 @@ function handleDoneTap() {
 // Instant press feedback, driven off raw pointer events rather than CSS :active. Two real
 // mobile-specific reasons for that:
 //  1. iOS Safari only honors :active on a touch tap if some element has a touchstart listener
-//     bound at all — otherwise it never applies the style for taps, only real clicks.
+//     bound at all - otherwise it never applies the style for taps, only real clicks.
 //  2. The board is now scrollable in two directions (swipe between players' boards, plus
 //     vertical scroll within each panel). Any tap target inside a pannable region makes the
 //     browser wait to see if the finger moves before committing to "tap" vs "scroll" before
-//     firing `click` — touch-action:manipulation doesn't remove that, it only removes the
+//     firing `click` - touch-action:manipulation doesn't remove that, it only removes the
 //     double-tap-zoom delay. pointerdown fires immediately, before that disambiguation, so
 //     driving the visual feedback off it (separately from the actual game-logic click handler)
 //     is what makes a press look instant even while a scroll gesture is still being resolved.
@@ -3232,7 +3250,7 @@ function clearPressed() {
 }
 
 /* =========================================================
-   DEV: ADD CARD TO HAND — search all 135 fish cards and drop one straight into your own
+   DEV: ADD CARD TO HAND - search all 135 fish cards and drop one straight into your own
    hand, for testing abilities/scoring without having to draw into them naturally. Lives in
    the Lobby drawer's "Dev Tools" section, as a search popup rather than a full drawer since
    it's a one-off action, not something that needs to stay open alongside the game.
@@ -3273,12 +3291,12 @@ function devAddCardToHand(cardIndex) {
 }
 
 /* =========================================================
-   DEV TIMING LOG — on-device instrumentation for tap latency.
+   DEV TIMING LOG - on-device instrumentation for tap latency.
    Lives in the Lobby drawer (below the version number). Real touch timing varies a lot by
    browser/OS in ways that can't be reproduced from a desktop test runner, so this measures
    it live on whatever device is actually running the page: how long between a finger landing
    (pointerdown), lifting (pointerup), the browser's synthesized click, and this page's own
-   render() work — so a slow tap can be attributed to "the browser's gesture handling" vs
+   render() work - so a slow tap can be attributed to "the browser's gesture handling" vs
    "our own code" instead of guessed at.
    ========================================================= */
 const devTiming = { log: [], lastPointerDown: null };
@@ -3296,7 +3314,7 @@ function renderDevTimingLog() {
   if (!el) return;
   el.innerHTML = devTiming.log.map((e) =>
     `<div>${e.stamp} <strong>${escapeHtml(e.label)}</strong>: ${e.ms}ms</div>`
-  ).join("") || "<div style='color:var(--text-dim);'>No taps recorded yet — interact with the game, then check back here.</div>";
+  ).join("") || "<div style='color:var(--text-dim);'>No taps recorded yet - interact with the game, then check back here.</div>";
 }
 
 function wireDevTiming() {
@@ -3314,14 +3332,14 @@ function wireDevTiming() {
     devTimingPush("pointerdown → click", clickTime - devTiming.lastPointerDown.time);
     devTiming.lastPointerDown = null;
     // by the next animation frame, any synchronous render() this click triggered has already
-    // run and committed its DOM changes — this is roughly "click handled -> ready to paint"
+    // run and committed its DOM changes - this is roughly "click handled -> ready to paint"
     requestAnimationFrame(() => {
       devTimingPush("click → next frame", performance.now() - clickTime);
     });
   }, { capture: true });
 
   // wrap render() itself so its own execution cost is visible separately from browser/gesture
-  // timing above — if THIS number is small but the tap still feels slow, the delay is in the
+  // timing above - if THIS number is small but the tap still feels slow, the delay is in the
   // browser's touch handling, not this page's code
   const realRender = render;
   render = function () {
@@ -3338,14 +3356,14 @@ function wirePressFeedback() {
     const target = e.target.closest(PRESSABLE);
     if (!target || target.disabled) return;
     target.classList.add("pressed");
-    // safety net only — a successful tap's own click handler calls render(), which clears
+    // safety net only - a successful tap's own click handler calls render(), which clears
     // "pressed" itself (see render()) at the exact moment the real result is ready, so the
     // press feedback hands off smoothly into whatever actually happened instead of reverting
     // to neutral first. This timeout only matters for taps that don't trigger any render at
     // all (e.g. a no-op tap when it's not your turn), so it never fires stuck.
     setTimeout(() => target.classList.remove("pressed"), 400);
   }, { passive: true });
-  // a gesture that turns into a scroll/drag should un-press immediately — that one really is
+  // a gesture that turns into a scroll/drag should un-press immediately - that one really is
   // "nothing happened here", unlike a completed tap
   document.body.addEventListener("pointercancel", clearPressed, { passive: true });
   document.body.addEventListener("pointerleave", clearPressed, { passive: true });
@@ -3354,14 +3372,14 @@ function wirePressFeedback() {
 // Belt-and-suspenders for touch-action:none: some WebKit versions still let a touch that starts
 // on a touch-action:none element drag-scroll an ancestor (most commonly triggered by the legacy
 // -webkit-overflow-scrolling:touch momentum scroller, which is why that flag was removed from
-// every container above -- but this listener stays as a hard backstop even without it). A tap
+// every container above - but this listener stays as a hard backstop even without it). A tap
 // itself never needs touchmove, so unconditionally cancelling it for these elements costs nothing.
 function wireNoScrollBackstop() {
   const ALWAYS_NO_SCROLL = ".token, .dive-btn, button, #hand-resize-handle";
   document.body.addEventListener("touchmove", (e) => {
     if (e.target.closest(ALWAYS_NO_SCROLL)) { e.preventDefault(); return; }
     // .board-slot only needs this while it's actually touch-action:none (a hand card is
-    // selected, see body.card-selected in CSS) -- otherwise it's meant to stay scrollable
+    // selected, see body.card-selected in CSS) - otherwise it's meant to stay scrollable
     if (document.body.classList.contains("card-selected") && e.target.closest(".board-slot")) e.preventDefault();
   }, { passive: false });
 }
@@ -3379,7 +3397,7 @@ function handHeightMax() { return Math.round(window.innerHeight * 0.45); }
 function setHandHeight(px) {
   const clamped = Math.max(HAND_HEIGHT_MIN, Math.min(handHeightMax(), Math.round(px)));
   document.documentElement.style.setProperty("--hand-height", clamped + "px");
-  try { localStorage.setItem(HAND_HEIGHT_STORAGE_KEY, String(clamped)); } catch (e) { /* private browsing / storage disabled -- just skip persisting */ }
+  try { localStorage.setItem(HAND_HEIGHT_STORAGE_KEY, String(clamped)); } catch (e) { /* private browsing / storage disabled - just skip persisting */ }
   return clamped;
 }
 function loadSavedHandHeight() {
@@ -3390,7 +3408,7 @@ function loadSavedHandHeight() {
   return null;
 }
 // Dragging live-resizes as before, but a genuine tap (released before the finger has moved past
-// HAND_TAP_MOVE_THRESHOLD) instead toggles between the default height and the max — so a quick
+// HAND_TAP_MOVE_THRESHOLD) instead toggles between the default height and the max - so a quick
 // tap is a shortcut for "make it big to see cards" / "put it back", while a real drag still
 // gives free-form control over the exact height.
 function wireHandResizeHandle() {
@@ -3437,14 +3455,14 @@ function wireEvents() {
     if (row) devAddCardToHand(parseInt(row.dataset.cardIndex, 10));
   });
   // .dive-btn and tokens are always touch-action:none (see CSS), meaning a touch starting on
-  // one of them can never turn into a pan/scroll — panning there is simply disabled, not just
-  // deprioritized — so there's no tap-vs-scroll ambiguity left to resolve. Reacting on
+  // one of them can never turn into a pan/scroll - panning there is simply disabled, not just
+  // deprioritized - so there's no tap-vs-scroll ambiguity left to resolve. Reacting on
   // pointerdown itself (rather than even pointerup, let alone click) is safe for exactly that
   // reason: a scroll gesture that started elsewhere never fires pointerdown here, since
   // pointerdown only fires on whatever the finger initially lands on.
   //
   // .board-slot is different: it's touch-action:none ONLY while a hand card is selected
-  // (body.card-selected, see CSS) — the rest of the time it's the scrollable surface for the
+  // (body.card-selected, see CSS) - the rest of the time it's the scrollable surface for the
   // panel, so fish-slot taps have to go through the click listener below instead, where the
   // ambiguity actually needs the browser's own tap-vs-scroll resolution.
   document.getElementById("board-wrap").addEventListener("pointerdown", (e) => {
@@ -3473,7 +3491,7 @@ function wireEvents() {
   });
 
   // .mini-card stays scrollable (touch-action:manipulation), so the browser still needs to
-  // disambiguate tap-vs-scroll there — click is correct (and lets the browser suppress it for
+  // disambiguate tap-vs-scroll there - click is correct (and lets the browser suppress it for
   // us when a gesture turns out to be a scroll). discard-pile cards are appended after hand
   // cards in this same strip (see renderHand()), marked by the .discard-card class, and route
   // to a different handler.
@@ -3712,8 +3730,8 @@ function initPeer(username) {
   peer.on("error", (err) => {
     console.error("PeerJS error", err);
     // someone else is already registered under this exact username (on this app's shared
-    // prefix) -- surface that plainly rather than leaving the user staring at "Connecting..."
-    if (err && err.type === "unavailable-id") state.net.peerIdError = "That username is already taken right now — try another.";
+    // prefix) - surface that plainly rather than leaving the user staring at "Connecting..."
+    if (err && err.type === "unavailable-id") state.net.peerIdError = "That username is already taken right now - try another.";
     render();
   });
 }
@@ -3723,7 +3741,7 @@ function initPeer(username) {
    ========================================================= */
 
 // cards are re-expressed as an index into the static CARD_DATA array (or -1 for the
-// synthetic Forage Fish) instead of the full object — both ends already have the same
+// synthetic Forage Fish) instead of the full object - both ends already have the same
 // CARD_DATA, so this is the single biggest size win for a URL-shareable snapshot.
 function compactCard(card) {
   if (!card) return null;
@@ -3782,7 +3800,7 @@ function buildShareableState() {
 }
 function applyShareableState(cs) {
   state.gameId = cs.gid;
-  state.boardDirty = true; // other players' boards may have changed — full rebuild next render
+  state.boardDirty = true; // other players' boards may have changed - full rebuild next render
   state.playerOrder = cs.po;
   state.activePlayerId = cs.ap;
   state.currentRound = cs.cr;
@@ -3845,7 +3863,7 @@ async function generateShareLink() {
   return url.toString();
 }
 
-// with 3+ players, every link load asks who's playing, on purpose — the same link can be
+// with 3+ players, every link load asks who's playing, on purpose - the same link can be
 // opened by anyone at the table (or reopened by the sender themselves to double check it), so
 // we never assume. With exactly two players, though, there's no ambiguity: the link already
 // carries who's up next (buildShareableState()'s "ap"), and whoever opens it can only be that
@@ -3867,7 +3885,7 @@ async function tryLoadFromHash() {
     return true;
   } catch (e) {
     console.error("Failed to load shared game link", e);
-    pushLog("That game link could not be read — it may be corrupted or from a different version.");
+    pushLog("That game link could not be read - it may be corrupted or from a different version.");
     return false;
   }
 }
@@ -3889,12 +3907,12 @@ function renderIdentityPicker() {
 }
 
 // Safari (especially iOS) revokes a tap's "user activation" the moment any await elapses since
-// the click that triggered it -- and generateShareLink() is itself async (it gzip-compresses
+// the click that triggered it - and generateShareLink() is itself async (it gzip-compresses
 // the shared state), so calling navigator.clipboard.writeText() only after awaiting that link
 // silently fails there, even though nothing looks wrong in the code. The fix is the deferred-
 // value form of the broader write() API: a ClipboardItem whose data is a still-pending Promise
 // keeps the write tied to the ORIGINAL gesture even though the actual text resolves a moment
-// later -- but this call itself has to happen synchronously (no preceding await) for that to
+// later - but this call itself has to happen synchronously (no preceding await) for that to
 // work, so callers must pass the promise straight through rather than awaiting it first.
 async function copyTextToClipboardAsync(textPromise) {
   if (navigator.clipboard && typeof ClipboardItem === "function") {
@@ -3940,12 +3958,12 @@ async function refreshShareLinkBox() {
 async function copyShareLink() {
   const box = document.getElementById("share-link-box");
   if (box && state.gameStarted) box.value = "Generating...";
-  // not awaited here on purpose -- see copyTextToClipboardAsync() for why
+  // not awaited here on purpose - see copyTextToClipboardAsync() for why
   const linkPromise = generateShareLink().then((link) => { if (box) box.value = link; return link; });
   const ok = await copyTextToClipboardAsync(linkPromise);
   document.getElementById("share-link-status").textContent = ok
     ? "Link copied! Send it to the next player."
-    : "Couldn't auto-copy — select the text above and copy manually.";
+    : "Couldn't auto-copy - select the text above and copy manually.";
 }
 
 /* =========================================================
@@ -3964,7 +3982,7 @@ async function boot() {
   render();
 }
 
-// a browser only re-runs page scripts on a full navigation — if a link that differs only by
+// a browser only re-runs page scripts on a full navigation - if a link that differs only by
 // #hash is opened while this same tab/PWA instance is already showing the app (common when an
 // OS reuses an existing tab for a tapped link), no reload happens, so we also have to watch for
 // the hash changing directly and re-import the new state the same way boot() does.
