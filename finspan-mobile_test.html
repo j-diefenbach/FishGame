@@ -1,0 +1,3997 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#0b2942" />
+<title>Finspan</title>
+<style>
+  :root {
+    --bg: #0b2942;
+    --panel: #103a5c;
+    --panel-2: #0e3352;
+    --border: #1e5480;
+    --text: #eaf4ff;
+    --text-dim: #9fc3de;
+    --accent: #f2b640;
+    --blue: #2f7fd1;
+    --purple: #8a5fc9;
+    --green: #3aa671;
+    --danger: #d1573f;
+    --ok: #3aa671;
+    --source-highlight: #3b82f6;
+    --hand-height: 100px;
+  }
+  * {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    /* stop iOS treating a slightly-long tap as the start of a text-selection loupe */
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    overscroll-behavior: none;
+    user-select: none;
+  }
+  /* every tappable icon/card in this game is an <img> or a background-image div — without
+     these, iOS can intercept a tap as "start of Save Image" (touch-callout) or "start of
+     dragging this image" (user-drag), both of which add hesitation before a tap registers,
+     or occasionally pop up native UI instead of reaching the game at all */
+  img, .board-slot, .mini-card, .mini-card-img, .slot-fish-img {
+    -webkit-touch-callout: none;
+    -webkit-user-drag: none;
+  }
+  button {
+    font-family: inherit;
+    color: inherit;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    min-height: 40px;
+    min-width: 40px;
+    cursor: pointer;
+    transition: transform 0.08s ease-out, filter 0.08s ease-out;
+    will-change: transform;
+    /* buttons never need to themselves start a pan gesture — there's always non-button space
+       to grab for scrolling — so tell WebKit not to even consider that possibility for them.
+       touch-action:manipulation (set globally) still *permits* panning, which means WebKit has
+       to wait to see whether your finger moves before it'll commit to firing click; that wait
+       is worse here since .dive-btn sits inside two nested scrollable regions (the board strip
+       scrolls horizontally between players, each panel scrolls vertically). touch-action:none
+       removes the possibility entirely, so there's nothing left to disambiguate. */
+    touch-action: none;
+  }
+  button:disabled { opacity: 0.35; cursor: default; }
+  button.primary { background: var(--accent); color: #24160a; border-color: var(--accent); font-weight: 600; }
+  /* instant press feedback on every tappable element — this fires the moment a finger goes
+     down, at the browser's compositor, so it shows up well before any JS/render has run */
+  button:not(:disabled):active, button.pressed:not(:disabled) { transform: scale(0.94); filter: brightness(1.15); }
+  input[type=text] {
+    font-family: inherit;
+    color: var(--text);
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    min-height: 40px;
+  }
+  img.icon { display: block; pointer-events: none; }
+
+  #app {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+    max-width: 560px;
+    margin: 0 auto;
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* ---- status bar ---- */
+  #status-bar {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px 10px;
+    background: var(--panel);
+    border-bottom: 4px solid var(--border);
+    transition: border-color 0.15s ease-out;
+    flex: 0 0 auto;
+    font-size: 13px;
+  }
+  /* "is it my turn" collapses to a single colour highlight along the bottom edge of the bar,
+     instead of a text pill — each player's own board panel carries their name + turn state */
+  #status-bar.my-turn-glow { border-bottom-color: var(--accent); }
+  .status-row1 { display: flex; align-items: center; gap: 8px; }
+  #status-bar .round-bonuses { display: flex; gap: 6px; }
+  #status-bar .round-bonuses.hidden { display: none; }
+  #status-bar .round-bonus-chip {
+    flex: 1 1 0;
+    aspect-ratio: 1 / 1;
+    width: 100%;
+    border-radius: 12px; background: var(--panel-2);
+    border: 1px solid var(--border); font-size: 22px; font-weight: 700; color: var(--text-dim);
+    display: flex; align-items: center;
+    justify-content: center; text-align: center; overflow: hidden; padding: 1px;
+  }
+  #status-bar .round-bonus-chip.active { border-color: var(--accent); box-shadow: 0 0 6px var(--accent); }
+  .game-end-badge {
+    width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, #f2b640, #c97f14);
+    color: #24160a; font-weight: 800; line-height: 1.15; text-align: center;
+  }
+  #toggle-bonuses-btn {
+    padding: 6px 8px; min-width: 32px; min-height: 32px; flex: 0 0 auto;
+    font-size: 11px; transition: transform 0.2s;
+  }
+  #toggle-bonuses-btn.collapsed { transform: rotate(180deg); }
+
+  /* ---- turn (action) dots ---- */
+  #turn-dots-row {
+    display: flex; justify-content: center; gap: 8px; flex: 1;
+  }
+  .turn-dot {
+    width: 30px; height: 30px; border-radius: 50%;
+    background: var(--panel-2); border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .turn-dot img { width: 17px; height: 17px; }
+  .turn-dot.empty { opacity: 0.4; }
+  .turn-dot.act-fish { background: var(--accent); border-color: var(--accent); }
+  .turn-dot.act-blue { background: var(--blue); border-color: var(--blue); }
+  .turn-dot.act-purple { background: var(--purple); border-color: var(--purple); }
+  .turn-dot.act-green { background: var(--green); border-color: var(--green); }
+  .turn-dot.next-up { box-shadow: 0 0 0 2px var(--accent); }
+
+  /* ---- board ---- */
+  /* every player's board is visible as its own full-width panel; #board-wrap is the
+     horizontal scroller (snaps between panels), each panel scrolls vertically on its own */
+  #board-region {
+    flex: 1 1 auto;
+    overflow: hidden;
+    padding: 0;
+  }
+  .board-wrap {
+    display: flex;
+    height: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x mandatory;
+    /* -webkit-overflow-scrolling:touch deliberately NOT set here (see .player-board-panel below
+       for why) */
+  }
+  .player-board-panel {
+    flex: 0 0 100%;
+    max-width: 100%;
+    height: 100%;
+    overflow-y: auto;
+    /* -webkit-overflow-scrolling:touch forces the legacy native (UIScrollView-backed) momentum
+       scroller, which bypasses touch-action on descendants entirely — a touch-action:none token
+       or dive-btn nested in here could still drag-scroll the panel despite the CSS saying it
+       shouldn't be able to. iOS 13+ already gives plain overflow:auto momentum scrolling without
+       this flag, so it's just left off. */
+    scroll-snap-align: start;
+    box-sizing: border-box;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    border-top: 4px solid transparent;
+    transition: border-color 0.15s ease-out;
+  }
+  .player-board-panel.their-turn { border-top-color: var(--accent); }
+  .panel-header {
+    display: flex; align-items: center; gap: 6px;
+    font-weight: 700; font-size: 14px; padding: 2px 2px 4px;
+  }
+  .panel-you-tag {
+    background: var(--accent); color: #24160a; font-size: 10px; font-weight: 800;
+    border-radius: 999px; padding: 2px 8px;
+  }
+  .zone-label-row { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-dim); padding: 2px 4px; }
+  .zone-reward-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-bottom: 2px; }
+  .zone-reward-cell {
+    display: flex; align-items: center; justify-content: center;
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px;
+    padding: 3px 0;
+  }
+  .zone-reward-cell img { width: 18px; height: 18px; }
+  .zone-reward-cell.dim { opacity: 0.3; filter: grayscale(70%); }
+  /* marks the zone-reward cell that generated the queue's current front step (a dive-site
+     zone bonus) — see "action source" highlight below on .board-slot for the card-triggered
+     equivalent */
+  .zone-reward-cell.source-highlight { box-shadow: 0 0 0 2px var(--source-highlight), 0 0 8px 3px var(--source-highlight); opacity: 1; filter: none; }
+  .board-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+  }
+  .board-slot {
+    position: relative;
+    border-radius: 8px;
+    border: 1px dashed var(--border);
+    aspect-ratio: 1.35 / 1;
+    background-size: cover;
+    background-position: center;
+    overflow: visible;
+    transition: box-shadow 0.08s ease-out;
+    /* touch-action:manipulation (inherited from the global rule) by default, so the panel can
+       still be scrolled by dragging directly on a slot when there's nothing to tap-place yet.
+       Once a hand card is selected, body.card-selected below switches every slot to tap-only
+       (no pan) so placing it activates immediately on pointerdown instead of waiting through
+       WebKit's tap-vs-scroll disambiguation -- see canStartNewAction()-adjacent selection state. */
+  }
+  body.card-selected .board-slot { touch-action: none; }
+  /* marks whichever fish's cell is the "action source" of the queue's current front step —
+     the card whose ability/cost/dive-site trigger produced it — mirroring the original app's
+     boxShadow-on-source-cell behaviour so it's obvious which card a queue prompt belongs to */
+  .board-slot.source-highlight { box-shadow: 0 0 0 3px var(--source-highlight), 0 0 12px 4px var(--source-highlight); }
+  .board-slot[data-col="0"] { background-color: #1a3c5c; }
+  .board-slot[data-col="1"] { background-color: #3a2c5c; }
+  .board-slot[data-col="2"] { background-color: #1a4c3c; }
+  .board-slot.can-drop { box-shadow: 0 0 0 3px var(--accent) inset; }
+  .board-slot.blocked { filter: brightness(0.6); }
+  /* instant tap feedback — shows the moment a finger goes down, no waiting on JS/render */
+  .board-slot:active, .board-slot.pressed { box-shadow: 0 0 0 2px var(--accent) inset; }
+  .slot-fish-img {
+    position: absolute; inset: 2px; border-radius: 6px; background-size: cover; background-repeat: no-repeat;
+    border: 1px solid rgba(0,0,0,0.4);
+  }
+  /* the starting Forage Fish pieces show a plain recycle icon instead of card art — see renderSlot() */
+  .slot-fish-img.forage-slot { display: flex; align-items: center; justify-content: center; background-color: #12293e; }
+  .forage-icon { width: 55%; height: 55%; opacity: 0.8; }
+  .slot-tokens { position: absolute; bottom: -6px; left: -6px; right: -6px; display: flex; gap: 2px; flex-wrap: wrap; }
+  .token {
+    width: 20px; height: 20px; border-radius: 6px; border: 1px solid rgba(0,0,0,0.5);
+    display: flex; align-items: center; justify-content: center; box-shadow: 1px 1px 3px rgba(0,0,0,0.4);
+    transition: transform 0.08s ease-out;
+    will-change: transform;
+    /* tokens are small, precise tap targets sitting on top of .board-slot (which stays
+       pannable) — panning can still start on the slot around/behind a token, so this doesn't
+       cost any scrollability, it just removes the tap-vs-pan wait specifically on the token */
+    touch-action: none;
+  }
+  .token-young { background: #e0e440; }
+  .token-egg { background: #d55943; }
+  .token-school { background: #ae003f; }
+  .token-tucked { background: #4a4a4a; }
+  /* pushes this (consumed-fish) chip and any following it to the right end of .slot-tokens'
+     flex row, keeping young/egg/school left-aligned as before — opposite corners, one row */
+  .token-tucked.tucked-first { margin-left: auto; }
+  .token.selected { box-shadow: 0 0 0 2px #fff, 0 0 6px 2px #fff700; }
+  .token img { width: 13px; height: 13px; }
+  .token:active, .token.pressed { transform: scale(1.2); }
+  .dive-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+    padding: 2px 0;
+  }
+  .dive-btn {
+    display: flex; align-items: center; justify-content: center; gap: 4px;
+    border-radius: 8px; padding: 6px; min-height: 40px;
+  }
+  .dive-btn img { width: 22px; height: 22px; }
+  .dive-btn[data-col="0"] { background: var(--blue); }
+  .dive-btn[data-col="1"] { background: var(--purple); }
+  .dive-btn[data-col="2"] { background: var(--green); }
+  .dive-btn .use-count { margin-left: 4px; font-size: 11px; font-weight: 600; }
+
+  /* ---- queue / action panel ---- */
+  #queue-region {
+    flex: 0 0 auto;
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+    padding: 8px 10px;
+    display: none;
+  }
+  #queue-region.visible { display: block; }
+  #queue-region .queue-prompt { display: none; }
+  #queue-region .queue-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  #queue-region .queue-icons { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+  #queue-region .queue-icons img { width: 22px; height: 22px; }
+  #queue-region .queue-icons img.queue-arrow-icon { width: 12px; height: 12px; }
+  #queue-region .cost-items { display: flex; gap: 6px; align-items: center; }
+  #queue-region .cost-item { width: 26px; height: 26px; border-radius: 6px; background: var(--panel-2); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; }
+  #queue-region .cost-item img { width: 16px; height: 16px; }
+  #queue-region .cost-item.satisfied { border-color: var(--ok); }
+  #queue-region .actions { display: flex; gap: 6px; margin-top: 6px; }
+
+  /* ---- hand ---- */
+  #hand-wrap { flex: 0 0 auto; position: relative; }
+  #hand-region {
+    height: var(--hand-height);
+    background: var(--panel-2);
+    border-top: 1px solid var(--border);
+    padding: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    overflow-x: auto;
+  }
+  /* small pill button straddling #hand-region's top border, centered — not a full-width bar */
+  #hand-resize-handle {
+    position: absolute; top: 0; left: 50%; transform: translate(-50%, -50%);
+    z-index: 5;
+    width: 44px; min-width: 0; height: 22px; min-height: 0;
+    padding: 0; border-radius: 11px;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--panel-2); border: 1px solid var(--border);
+    touch-action: none; /* dragging vertically must never scroll the page instead */
+  }
+  /* overrides the global button:active scale (which would otherwise replace, not combine with,
+     the translate(-50%,-50%) centering above and knock the handle off-center while pressed) */
+  #hand-resize-handle:not(:disabled):active { transform: translate(-50%, -50%) scale(0.94); }
+  .hand-resize-grip { width: 22px; height: 4px; border-radius: 2px; background: var(--border); }
+  #hand-resize-handle:active .hand-resize-grip, #hand-resize-handle.dragging .hand-resize-grip { background: var(--accent); }
+  /* shared by hand + discard strips: same size/ratio and nested image-div approach as the board's .board-slot/.slot-fish-img */
+  .mini-card {
+    flex: 0 0 auto;
+    height: 100%;
+    aspect-ratio: 1.35 / 1;
+    border-radius: 8px;
+    border: 2px solid transparent;
+    background-color: #12293e;
+    position: relative;
+    transition: transform 0.08s ease-out;
+    will-change: transform;
+    /* touch-action:manipulation (inherited from the global rule) on purpose — cards need to
+       stay draggable themselves so the hand strip can be scrolled by dragging directly on a
+       card, not just the gaps between them; click is the correct event here so the browser can
+       still resolve tap-vs-pan and suppress the click when a touch turns into a scroll */
+  }
+  .mini-card:active, .mini-card.pressed { transform: scale(0.95) translateY(-4px); }
+  .mini-card-img {
+    position: absolute; inset: 2px; border-radius: 6px;
+    background-size: cover; background-repeat: no-repeat;
+    border: 1px solid rgba(0,0,0,0.4);
+  }
+  .mini-card.selected { border-color: var(--accent); box-shadow: 0 0 8px var(--accent); }
+  .mini-card.unaffordable { filter: grayscale(70%) brightness(0.6); }
+  .mini-card.fromhand-target { box-shadow: 0 0 0 3px var(--accent); }
+
+  /* discard-pile cards, appended after the hand cards in the same #hand-region strip -- a
+     different background colour (echoing the old separate discard strip's dark red) is the only
+     thing that marks them apart, since they're no longer in their own section of the screen */
+  .mini-card.discard-card { background-color: #3a1414; border-color: #6b2a2a; }
+  .hand-discard-label {
+    flex: 0 0 auto;
+    display: flex; align-items: center;
+    writing-mode: vertical-rl;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+    color: var(--text-dim);
+    border-left: 1px solid var(--border);
+    padding-left: 8px;
+  }
+  /* read-only hand+discard peek at the bottom of an OPPONENT's board panel — see
+     peekHandDiscardStrip() — a horizontal scroller nested inside the panel's own vertical
+     scroll, same card art/sizing as the real (interactive) hand/discard strips */
+  .peek-hand-strip {
+    display: flex; gap: 6px; overflow-x: auto;
+    padding: 4px 2px 2px;
+    margin-top: 2px;
+    /* without this, overflow-x:auto gives this item an automatic minimum size of 0 along the
+       parent's (column) main axis — since .player-board-panel's content overflows and needs to
+       shrink somewhere, flexbox preferentially collapses THIS item toward that 0 floor instead
+       of the other rows (which have no overflow set, so keep their content-based floor) */
+    flex-shrink: 0;
+  }
+  .peek-hand-strip .mini-card { height: 64px; }
+
+  /* ---- bottom nav ---- */
+  #bottom-nav {
+    flex: 0 0 auto;
+    display: flex;
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+  }
+  #bottom-nav button {
+    flex: 1;
+    border-radius: 0;
+    border: none;
+    border-right: 1px solid var(--border);
+    background: transparent;
+    font-size: 11px;
+    padding: 6px 2px;
+  }
+  #bottom-nav button:last-child { border-right: none; }
+  .hamburger-icon {
+    display: block; margin: 4px auto; position: relative;
+    width: 20px; height: 2px; background: currentColor; border-radius: 1px;
+  }
+  .hamburger-icon::before, .hamburger-icon::after {
+    content: ""; position: absolute; left: 0; width: 20px; height: 2px; background: currentColor; border-radius: 1px;
+  }
+  .hamburger-icon::before { top: -6px; }
+  .hamburger-icon::after { top: 6px; }
+  /* small jump-to-top/bottom buttons next to the hamburger -- fixed narrow width rather than
+     the flex:1 the other nav buttons use, since these are icon-only and don't need to be wide */
+  #bottom-nav button.nav-scroll-btn { flex: 0 0 40px; }
+  .scroll-arrow-icon {
+    display: block; margin: 0 auto; width: 0; height: 0;
+    border-left: 5px solid transparent; border-right: 5px solid transparent;
+  }
+  .scroll-arrow-icon.up { border-bottom: 7px solid currentColor; }
+  .scroll-arrow-icon.down { border-top: 7px solid currentColor; }
+  .status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--danger); flex: 0 0 auto; }
+  .status-dot.connected { background: var(--ok); }
+
+  /* ---- drawers (full screen overlay panels) ---- */
+  .drawer {
+    position: absolute; inset: 0; background: var(--bg); z-index: 50;
+    display: none; flex-direction: column;
+  }
+  .drawer.open { display: flex; }
+  .drawer-header {
+    display: flex; align-items: center; gap: 8px; padding: 10px; border-bottom: 1px solid var(--border);
+    background: var(--panel);
+  }
+  .drawer-header h2 { font-size: 15px; margin: 0; flex: 1; }
+  .drawer-body { flex: 1; overflow-y: auto; padding: 10px; }
+  .drawer-body .row { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
+  .peer-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+  .peer-row input { flex: 1; }
+  .chat-log, .action-log-list { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+  .chat-msg { background: var(--panel-2); border-radius: 6px; padding: 6px 8px; }
+  .chat-msg .who { color: var(--accent); font-weight: 600; margin-right: 4px; }
+  .opponent-block { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 8px; margin-bottom: 8px; }
+  .opponent-block h3 { margin: 0 0 4px 0; font-size: 13px; }
+  .mini-board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; }
+  .mini-slot { aspect-ratio: 1.35/1; border-radius: 4px; background-size: cover; background-position: center; background-color: #16344e; position: relative; }
+  .mini-slot .mini-tok { position: absolute; bottom: 1px; right: 1px; font-size: 8px; background: rgba(0,0,0,0.6); border-radius: 3px; padding: 0 2px; }
+
+  #final-score-overlay {
+    position: absolute; inset: 0; background: rgba(0,0,0,0.85); z-index: 100;
+    display: none; align-items: center; justify-content: center; padding: 16px;
+  }
+  #final-score-overlay.open { display: flex; }
+  #final-score-overlay .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px; max-height: 90%; overflow-y: auto; width: 100%;
+  }
+  #final-score-overlay table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  #final-score-overlay td { padding: 3px 4px; border-bottom: 1px solid var(--border); }
+
+  #identity-picker-overlay {
+    position: absolute; inset: 0; background: rgba(0,0,0,0.85); z-index: 110;
+    display: flex; align-items: center; justify-content: center; padding: 16px;
+  }
+  #identity-picker-overlay .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 20px; width: 100%; text-align: center;
+  }
+  .identity-choice-btn {
+    display: block; width: 100%; margin-top: 10px; padding: 12px; font-size: 15px; font-weight: 600;
+  }
+  .async-player-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+  .async-player-row input { flex: 1; }
+
+  #dev-card-overlay {
+    position: absolute; inset: 0; background: rgba(0,0,0,0.85); z-index: 110;
+    display: flex; align-items: flex-start; justify-content: center; padding: 16px;
+  }
+  #dev-card-overlay .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px; width: 100%; max-height: 85vh; margin-top: 24px;
+    display: flex; flex-direction: column;
+  }
+  #dev-card-search { width: 100%; margin-bottom: 8px; }
+  #dev-card-results { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+  .dev-card-row {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px;
+  }
+  .dev-card-row .dev-card-thumb {
+    width: 40px; aspect-ratio: 1.35 / 1; border-radius: 4px;
+    background-size: cover; background-repeat: no-repeat; flex: 0 0 auto;
+  }
+  .dev-card-row .dev-card-name { flex: 1; font-size: 13px; }
+  .dev-card-row .dev-card-meta { font-size: 10px; color: var(--text-dim); }
+  #dev-card-status { font-size: 12px; color: var(--ok); min-height: 16px; margin-top: 6px; }
+
+  .hidden { display: none !important; }
+
+  body.not-my-turn #hand-region { opacity: 0.55; }
+  body.not-my-turn .board-slot, body.not-my-turn .mini-card, body.not-my-turn .dive-btn { pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div id="status-bar">
+    <div class="round-bonuses" id="round-bonuses-strip"></div>
+    <div class="status-row1">
+      <div id="turn-dots-row"></div>
+      <button id="toggle-bonuses-btn" title="Show/hide round bonuses">&#9650;</button>
+    </div>
+  </div>
+
+  <div id="board-region">
+    <div class="board-wrap" id="board-wrap"></div>
+  </div>
+
+  <div id="queue-region">
+    <div class="queue-prompt" id="queue-prompt"></div>
+    <div class="queue-row">
+      <div class="queue-icons" id="queue-icons"></div>
+      <div class="cost-items" id="cost-items"></div>
+    </div>
+    <div class="actions" id="queue-actions"></div>
+  </div>
+
+  <div id="hand-wrap">
+    <button id="hand-resize-handle" aria-label="Drag to resize hand"><span class="hand-resize-grip"></span></button>
+    <div id="hand-region"></div>
+  </div>
+
+  <div id="bottom-nav">
+    <button data-drawer="lobby" id="nav-lobby" aria-label="Lobby"><span class="hamburger-icon"></span></button>
+    <button id="scroll-top-btn" class="nav-scroll-btn" aria-label="Scroll to top"><span class="scroll-arrow-icon up"></span></button>
+    <button id="scroll-bottom-btn" class="nav-scroll-btn" aria-label="Scroll to bottom"><span class="scroll-arrow-icon down"></span></button>
+    <button data-drawer="chat" id="nav-chat" class="hidden">Chat</button>
+    <button data-drawer="log" id="nav-log">Log</button>
+    <button id="undo-btn" title="Undo">&#8630; Undo</button>
+  </div>
+
+  <!-- Lobby drawer -->
+  <div class="drawer" id="drawer-lobby">
+    <div class="drawer-header"><h2>Lobby</h2><button id="close-lobby">Close</button></div>
+    <div class="drawer-body">
+      <div class="row">
+        <span>Your username:</span>
+        <input type="text" id="my-username-input" placeholder="choose a username" />
+        <span id="username-status-dot" class="status-dot"></span>
+      </div>
+      <div class="row">
+        <button id="set-username-btn">Connect</button>
+        <button id="copy-username-btn">Copy</button>
+      </div>
+      <div class="row"><span id="username-error-text" style="font-size:12px;color:var(--danger);"></span></div>
+      <div id="peer-list"></div>
+      <div class="row"><button id="add-peer-btn">+ Add Peer</button></div>
+      <div class="row"><button id="start-game-btn" class="primary">Start Game</button></div>
+      <div class="row"><span id="lobby-status" style="font-size:12px;color:var(--text-dim);"></span></div>
+
+      <h2 style="font-size:15px;margin:16px 0 8px;">Async (url)</h2>
+      <p style="font-size:12px;color:var(--text-dim);margin:0 0 8px;">Copy paste url or pass and play</p>
+      <div id="async-player-list"></div>
+      <div class="row"><button id="add-async-player-btn">+ Add Player</button></div>
+      <div class="row">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;">
+          <input type="checkbox" id="pass-and-play-checkbox" />
+          Pass and play (same device)
+        </label>
+      </div>
+      <div class="row"><button id="start-async-btn" class="primary">Start Async Game</button></div>
+      <div id="share-link-fields">
+        <div class="row"><textarea id="share-link-box" readonly rows="3" style="width:100%;font-size:11px;background:var(--panel-2);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:8px;"></textarea></div>
+        <div class="row"><button id="copy-share-link-btn" class="primary">Copy Game Link</button></div>
+        <div class="row"><span id="share-link-status" style="font-size:12px;color:var(--text-dim);"></span></div>
+      </div>
+
+      <div id="opponents-section" class="hidden">
+        <h2 style="font-size:15px;margin:16px 0 8px;">Opponents</h2>
+        <div id="opponents-body"></div>
+      </div>
+
+      <div id="app-version" style="text-align:center;font-size:11px;color:var(--text-dim);margin-top:24px;padding-bottom:8px;"></div>
+
+      <h2 style="font-size:15px;margin:16px 0 8px;">Dev Tools</h2>
+      <div class="row"><button id="dev-add-card-btn">Add Card to Hand…</button></div>
+
+      <div id="dev-timing-section" class="hidden">
+        <div class="row" style="margin-top:8px;">
+          <h2 style="font-size:15px;margin:0;flex:1;">Dev Timing Log</h2>
+          <button id="clear-dev-timing-btn">Clear</button>
+        </div>
+        <p style="font-size:11px;color:var(--text-dim);margin:0 0 8px;">Measures real touch-event timing on this device — how long between finger-down, finger-up, the browser's click, and this page's own render() work. Useful for tracking down tap lag on an actual phone.</p>
+        <div id="dev-timing-list" style="font-family:monospace;font-size:11px;display:flex;flex-direction:column;gap:2px;max-height:240px;overflow-y:auto;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Chat drawer -->
+  <div class="drawer" id="drawer-chat">
+    <div class="drawer-header"><h2>Chat</h2><button id="close-chat">Close</button></div>
+    <div class="drawer-body">
+      <div class="chat-log" id="chat-log"></div>
+    </div>
+    <div class="row" style="padding:8px;">
+      <input type="text" id="chat-input" placeholder="Message..." />
+      <button id="chat-send">Send</button>
+    </div>
+  </div>
+
+  <!-- Log drawer -->
+  <div class="drawer" id="drawer-log">
+    <div class="drawer-header"><h2>Action Log</h2><button id="close-log">Close</button></div>
+    <div class="drawer-body">
+      <div class="action-log-list" id="action-log-list"></div>
+    </div>
+  </div>
+
+  <div id="final-score-overlay">
+    <div class="card" id="final-score-card"></div>
+  </div>
+
+  <div id="identity-picker-overlay" class="hidden">
+    <div class="card">
+      <h2>Who are you?</h2>
+      <p style="font-size:12px;color:var(--text-dim);">Pick which player you are before continuing.</p>
+      <div id="identity-picker-list"></div>
+    </div>
+  </div>
+
+  <div id="dev-card-overlay" class="hidden">
+    <div class="card">
+      <div class="row" style="margin-bottom:8px;">
+        <h2 style="font-size:15px;margin:0;flex:1;">Add Card to Hand (Dev)</h2>
+        <button id="close-dev-card-overlay">Close</button>
+      </div>
+      <input type="text" id="dev-card-search" placeholder="Search fish name..." />
+      <div id="dev-card-status"></div>
+      <div id="dev-card-results"></div>
+    </div>
+  </div>
+
+</div>
+
+<script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
+<script>
+'use strict';
+
+/* =========================================================
+   1. CONSTANTS & CONFIG
+   ========================================================= */
+
+const APP_VERSION = "1.1.4";
+const IMAGE_BASE = "public/images/";
+const ICON_BASE = "https://navarog.github.io/finsearch/static/media/";
+
+// PeerJS's default cloud broker is a single global namespace shared by every app that uses it,
+// not just this one -- so a bare username like "alice" could collide with a totally unrelated
+// stranger's random PeerJS session from some other app. Prefixing every id this app registers
+// with a fixed, app-specific string keeps this app's usernames in their own corner of that
+// namespace; two players of THIS app can still collide with each other on username choice, but
+// that's a small, visible, self-resolving conflict (see the "unavailable-id" handling below)
+// rather than a silent cross-app collision.
+const PEER_ID_PREFIX = "finspan-mobile-x7q2m-";
+const USERNAME_STORAGE_KEY = "finspan-username";
+
+function sanitizeUsername(raw) {
+  return (raw || "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "-").slice(0, 40);
+}
+function fullPeerId(username) { return PEER_ID_PREFIX + sanitizeUsername(username); }
+function displayUsername(fullId) {
+  return fullId && fullId.indexOf(PEER_ID_PREFIX) === 0 ? fullId.slice(PEER_ID_PREFIX.length) : fullId;
+}
+function loadSavedUsername() {
+  try { return localStorage.getItem(USERNAME_STORAGE_KEY) || ""; } catch (e) { return ""; }
+}
+function saveUsername(username) {
+  try { localStorage.setItem(USERNAME_STORAGE_KEY, username); } catch (e) { /* private browsing / storage disabled -- just skip persisting */ }
+}
+
+const ICONS = {
+  egg: ICON_BASE + "FishEgg.47c0854a65b931607a5f.svg",
+  young: ICON_BASE + "YoungFish.7f06744193cdc4226005.svg",
+  school: ICON_BASE + "SchoolFish.825825df01f2bbbd9fc6.svg",
+  drawCard: ICON_BASE + "DrawCard.f8797f97d67a54536956.svg",
+  recycle: ICON_BASE + "Discard.be9f1d498b060aed10aa.svg",
+  fishFromHand: ICON_BASE + "FishFromHand.3555bcabadb9dc5316d5c371d35491c3.svg",
+  hatch: ICON_BASE + "FishHatch.58ff38c722190a38c540.svg",
+  move: ICON_BASE + "SchoolFeederMove.be97b1352a4dcaf90302.svg",
+  sun: ICON_BASE + "Sun.0d0fbe355de66b5ee060.svg",
+  dusk: ICON_BASE + "Dusk.6bc87cf6af5e002d9080.svg",
+  night: ICON_BASE + "Night.9a47430fb3b54cd0aba7.svg",
+  tucked: ICON_BASE + "ConsumeFish.1685046007ad2456930f.svg",
+  flipperBlue: ICON_BASE + "FlipperBlue.2d3a0bf7290ca06131ac.svg",
+  flipperPurple: ICON_BASE + "FlipperPurple.b80b43f3b2be5b414489.svg",
+  flipperGreen: ICON_BASE + "FlipperGreen.e3397c545a5045ba2dfc.svg",
+  arrowDown: ICON_BASE + "ArrowDown.6d19faad0ef0c8eedd9b.svg",
+  wave: ICON_BASE + "Wave.a9ed18c1399d7f3ef5e5.svg",
+  small: ICON_BASE + "FishLengthSmall.3e492f67da0ac3eaf601.svg",
+  medium: ICON_BASE + "FishLengthMedium.6b64ef796077135ea0ce.svg",
+  large: ICON_BASE + "FishLengthLarge.e9799ce90bb34038d13f.svg",
+  pred: ICON_BASE + "Predator.a0c36e62cbb3e0d8c25e.svg",
+};
+const DIVE_TEXTURES = {
+  blue: ICON_BASE + "blue.b9baf436df4033049f53.webp",
+  purple: ICON_BASE + "purple.c493ffc8ca41cab3da6f.webp",
+  green: ICON_BASE + "green.374d1a75825b118218bc.webp",
+};
+
+const SPRITE_SHEETS = {
+  "6495D42FD5F553CF1CE53CCC425EEFDC0EC81C36": { cols: 4, rows: 7 },
+  "25050BEA084E38D38C97EDCA6388CB36AD53C6D2": { cols: 4, rows: 7 },
+  "38203FC619C09737BB7DC4FBBDBC5F5288FFC1FC": { cols: 4, rows: 7 },
+  "90A0E9580A82136B3FF779EB700F766670EEA59A": { cols: 4, rows: 7 },
+  "00739914B4A57AA5ECABB5380B2F9873E3BD356C": { cols: 4, rows: 4 },
+  "7F3DB5446970DA168F569274083DDA82364B1A12": { cols: 4, rows: 3 },
+  "BC2E86AAFA36E672773B6CF40FADBED13567014B": { cols: 4, rows: 5 },
+};
+const ROUND_BONUS_SHEET = "BC2E86AAFA36E672773B6CF40FADBED13567014B";
+
+// the source sprite sheets have a thin gutter/border around each cell, so mapping a cell
+// exactly to its 1/cols x 1/rows slice (zoom 1.0) leaves a sliver of the neighboring cell's
+// edge visible along the border of the div. Zooming in slightly crops that bleed away.
+const CARD_ART_ZOOM = 1.08;
+
+// original Steam Workshop hosting for each sheet, used as a backup source if the local
+// copy under IMAGE_BASE isn't available (e.g. the images/ folder wasn't deployed alongside
+// this file) — keyed by the same sheet hash used everywhere else
+const STEAM_SHEET_URLS = {
+  "6495D42FD5F553CF1CE53CCC425EEFDC0EC81C36": "https://steamusercontent-a.akamaihd.net/ugc/12934413406950940637/6495D42FD5F553CF1CE53CCC425EEFDC0EC81C36/",
+  "25050BEA084E38D38C97EDCA6388CB36AD53C6D2": "https://steamusercontent-a.akamaihd.net/ugc/11821613455990366254/25050BEA084E38D38C97EDCA6388CB36AD53C6D2/",
+  "38203FC619C09737BB7DC4FBBDBC5F5288FFC1FC": "https://steamusercontent-a.akamaihd.net/ugc/14958982953395755091/38203FC619C09737BB7DC4FBBDBC5F5288FFC1FC/",
+  "90A0E9580A82136B3FF779EB700F766670EEA59A": "https://steamusercontent-a.akamaihd.net/ugc/13441267061191703243/90A0E9580A82136B3FF779EB700F766670EEA59A/",
+  "00739914B4A57AA5ECABB5380B2F9873E3BD356C": "https://steamusercontent-a.akamaihd.net/ugc/15008257014968613101/00739914B4A57AA5ECABB5380B2F9873E3BD356C/",
+  "7F3DB5446970DA168F569274083DDA82364B1A12": "https://steamusercontent-a.akamaihd.net/ugc/13586578094984520003/7F3DB5446970DA168F569274083DDA82364B1A12/",
+  "BC2E86AAFA36E672773B6CF40FADBED13567014B": "https://steamusercontent-a.akamaihd.net/ugc/9677629350803164091/BC2E86AAFA36E672773B6CF40FADBED13567014B/",
+};
+
+// resolved lazily per sheet: "local" (default/optimistic) or "steam" (local copy failed to load).
+// background-image can't use <img onerror>, so we probe once with a real Image() and remember it.
+const sheetImageSource = {};
+function sheetImageUrl(hash) {
+  if (sheetImageSource[hash] === "steam" && STEAM_SHEET_URLS[hash]) return STEAM_SHEET_URLS[hash];
+  return `${IMAGE_BASE}${hash}.png`;
+}
+function probeSheetAvailability(hash) {
+  if (hash in sheetImageSource || !STEAM_SHEET_URLS[hash]) return;
+  sheetImageSource[hash] = "local";
+  const img = new Image();
+  // a board-slot's own background-image request and this probe both fire at the same moment,
+  // so on a cold cache (most commonly: the very first time a shared turn link is opened on a
+  // device, before its browser has ever fetched this sheet) the slot can finish painting BEFORE
+  // the multi-MB sheet has actually downloaded, leaving it blank -- background-image has no
+  // load/error event of its own to catch that, which is exactly why this probe Image() exists.
+  // It previously only reacted to onerror (the local-vs-steam fallback), leaving the "still
+  // downloading" case to fix itself only whenever some unrelated render happened to fire next —
+  // in practice, the next turn's link, opened once this sheet was already cached, which is
+  // exactly the "spontaneously comes back next turn" symptom this was causing.
+  // state.boardDirty is forced here (not just a plain render()) because renderBoard()'s normal
+  // fast path only ever patches YOUR OWN panel — opponents' panels are intentionally left alone
+  // on every other render for performance. That's fine for gameplay actions (which only ever
+  // change your own board on your turn), but an image finishing its download can affect ANY
+  // panel on screen, including opponents', so this one needs the full rebuild. It's cheap here
+  // specifically because it only runs once per unique sheet for the whole session (guarded by
+  // the `hash in sheetImageSource` check above), not on every tap.
+  img.onload = () => { state.boardDirty = true; render(); };
+  img.onerror = () => {
+    sheetImageSource[hash] = "steam";
+    state.boardDirty = true;
+    render();
+  };
+  img.src = `${IMAGE_BASE}${hash}.png`;
+}
+
+// board geometry: 6 rows x 3 cols. rows: Sun=[0,1,2], Dusk=[3], Night=[4,5]. cols: 0=blue,1=purple,2=green
+const ZONE_ROWS = { Sun: [0, 1, 2], Dusk: [3], Night: [4, 5], Top: [0], Bottom: [5] };
+const DIVE_SITE_COLS = { blue: 0, purple: 1, green: 2 };
+const COL_SITE = ["blue", "purple", "green"];
+
+const QUEUE = {
+  COST: "cost",
+  YOUNG: "young",
+  EGG: "egg",
+  SCHOOL: "school",
+  DRAW_CARD: "drawCard",
+  RECYCLE: "recycle",
+  FISH_FROM_HAND: "fishFromHand",
+  MOVE: "move",
+  HATCH: "hatch",
+  END_ROUND: "endRound",
+  END_GAME_ABILITY: "endGameAbility",
+  UNKNOWN: "unknown",
+};
+
+const CARD_DATA = [
+  {
+    name: "Mariana snailfish", cost: ["card", "card"], zones: ["Bottom"], diveSite: "",
+    points: 1, finspan: 28, size: "small", tags: [],
+    abilityType: "game end", isAllPlayers: false, abilityReward: ["egg", "on", "bottom"],
+    sheet: "6495D42FD5F553CF1CE53CCC425EEFDC0EC81C36", row: 0, col: 0,
+  },
+  {
+    name: "Pale chimera", cost: ["card", "egg"], zones: ["Dusk", "Night"], diveSite: "",
+    points: 2, finspan: 137, size: "medium", tags: [],
+    abilityType: "game end", isAllPlayers: false, abilityReward: ["10", "if", "egg", "and", "young", "and", "school"],
+    sheet: "6495D42FD5F553CF1CE53CCC425EEFDC0EC81C36", row: 0, col: 2,
+  },
+  {
+    name: "Chinese trumpetfish", cost: ["card", "egg"], zones: ["Sun"], diveSite: "",
+    points: 3, finspan: 80, size: "medium", tags: [],
+    abilityType: "game end", isAllPlayers: false, abilityReward: ["egg", "on", "each", "medium"],
+    sheet: "6495D42FD5F553CF1CE53CCC425EEFDC0EC81C36", row: 0, col: 3,
+  },
+  {
+    name: "Great white shark", cost: ["young", "young", "tuck"], zones: ["Sun", "Dusk", "Night"], diveSite: "",
+    points: 10, finspan: 600, size: "large", tags: ["uber", "predator"],
+    abilityType: "when played", isAllPlayers: true, abilityReward: ["egg", "on", "each", "predator"],
+    sheet: "6495D42FD5F553CF1CE53CCC425EEFDC0EC81C36", row: 1, col: 0,
+  },
+  {
+    name: "Giant hatchetfish", cost: ["card", "card"], zones: ["Dusk"], diveSite: "",
+    points: 4, finspan: 12, size: "small", tags: ["bio", "camo"],
+    abilityType: "if activated", isAllPlayers: true, abilityReward: ["card"],
+    sheet: "6495D42FD5F553CF1CE53CCC425EEFDC0EC81C36", row: 1, col: 1,
+  },
+  {
+    name: "Abyssal spiderfish", cost: ["card", "card"], zones: ["Night"], diveSite: "",
+    points: 2, finspan: 25, size: "small", tags: [],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["hatch", "hatch", "hatch"],
+    sheet: "6495D42FD5F553CF1CE53CCC425EEFDC0EC81C36", row: 1, col: 2,
+  },
+  {
+    name: "White-spotted puffer", cost: ["egg"], zones: ["Sun"], diveSite: "",
+    points: 5, finspan: 50, size: "medium", tags: ["venom"],
+    abilityType: "if activated", isAllPlayers: true, abilityReward: ["move"],
+    sheet: "6495D42FD5F553CF1CE53CCC425EEFDC0EC81C36", row: 1, col: 3,
+  },
+  {
+    name: "emperor red snapper", cost: ["card", "egg"], zones: ["Sun"], diveSite: "purple",
+    points: 3, finspan: 115, size: "medium", tags: [],
+    abilityType: "if activated", isAllPlayers: false, abilityReward: ["egg"],
+    sheet: "6495D42FD5F553CF1CE53CCC425EEFDC0EC81C36", row: 2, col: 0,
+  },
+  {
+    name: "cownose ray", cost: ["card", "egg"], zones: ["Sun"], diveSite: "",
+    points: 3, finspan: 120, size: "medium", tags: ["venom"],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["fish", "in", "blue"],
+    sheet: "6495D42FD5F553CF1CE53CCC425EEFDC0EC81C36", row: 2, col: 1,
+  },
+  {
+    name: "chola guitarfish", cost: ["egg", "egg"], zones: ["Sun"], diveSite: "",
+    points: 4, finspan: 100, size: "medium", tags: ["camo"],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["fish", "in", "purple"],
+    sheet: "6495D42FD5F553CF1CE53CCC425EEFDC0EC81C36", row: 2, col: 2,
+  },
+  {
+    name: "whitemargin stargazer", cost: ["card", "card", "egg"], zones: ["Sun", "Dusk"], diveSite: "",
+    points: 4, finspan: 45, size: "small", tags: ["electric", "electric", "venom"],
+    abilityType: "if activated", isAllPlayers: false, abilityReward: ["move"],
+    sheet: "6495D42FD5F553CF1CE53CCC425EEFDC0EC81C36", row: 2, col: 3,
+  },
+  {
+    name: "abyssal halosaur", cost: ["young"], zones: ["Night"], diveSite: "",
+    points: 3, finspan: 90, size: "medium", tags: [],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["fish", "in", "bottom"],
+    sheet: "6495D42FD5F553CF1CE53CCC425EEFDC0EC81C36", row: 3, col: 0,
+  },
+  {
+    name: "speckled butterflyfish", cost: ["card"], zones: ["Sun"], diveSite: "",
+    points: 1, finspan: 13, size: "small", tags: [],
+    abilityType: "game end", isAllPlayers: false, abilityReward: ["hatch", "hatch", "hatch", "move"],
+    sheet: "6495D42FD5F553CF1CE53CCC425EEFDC0EC81C36", row: 3, col: 1,
+  },
+  {
+    name: "stonefish", cost: ["card", "egg"], zones: ["Sun"], diveSite: "",
+    points: 3, finspan: 60, size: "medium", tags: ["pred", "camo", "venom"],
+    abilityType: "if activated", isAllPlayers: false, abilityReward: ["move"],
+    sheet: "6495D42FD5F553CF1CE53CCC425EEFDC0EC81C36", row: 3, col: 2,
+  },
+  {
+    name: "striped marlin", cost: ["young"], zones: ["Sun"], diveSite: "",
+    points: 2, finspan: 420, size: "large", tags: ["pred"],
+    abilityType: "game end", isAllPlayers: false, abilityReward: ["fish", "in", "sun"],
+    sheet: "6495D42FD5F553CF1CE53CCC425EEFDC0EC81C36", row: 3, col: 3,
+  },
+  {
+    name: "blue tang", cost: ["egg", "egg"], zones: ["Sun"], diveSite: "",
+    points: 4, finspan: 30, size: "small", tags: ["venom"],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["move", "fish"],
+    sheet: "6495D42FD5F553CF1CE53CCC425EEFDC0EC81C36", row: 4, col: 0,
+  },
+  {
+    name: "ocean sunfish", cost: ["card", "egg", "egg"], zones: ["Sun", "Dusk"], diveSite: "",
+    points: 4, finspan: 330, size: "large", tags: [],
+    abilityType: "game end", isAllPlayers: false, abilityReward: ["egg", "on", "large"],
+    sheet: "6495D42FD5F553CF1CE53CCC425EEFDC0EC81C36", row: 4, col: 1,
+  },
+  {
+    name: "indo-pacific saifish", cost: ["card", "card", "young"], zones: ["Sun"], diveSite: "",
+    points: 7, finspan: 350, size: "large", tags: ["pred"],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["card", "card", "hatch"],
+    sheet: "6495D42FD5F553CF1CE53CCC425EEFDC0EC81C36", row: 4, col: 2,
+  },
+  {
+    name: "hogfish", cost: ["card", "card", "young"], zones: ["Sun"], diveSite: "",
+    points: 6, finspan: 90, size: "medium", tags: [],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["recycle", "recycle", "move"],
+    sheet: "6495D42FD5F553CF1CE53CCC425EEFDC0EC81C36", row: 4, col: 3,
+  },
+  {
+    name: "giant oarfish", cost: ["card", "young", "young"], zones: ["Sun", "Dusk"], diveSite: "",
+    points: 9, finspan: 1100, size: "large", tags: ["pred", "pred"],
+    abilityType: "when played", isAllPlayers: true, abilityReward: ["egg", "on", "each", "blue"],
+    sheet: "6495D42FD5F553CF1CE53CCC425EEFDC0EC81C36", row: 5, col: 0,
+  },
+  {
+    name: "whale shark", cost: ["school"], zones: ["Sun", "Dusk", "Night"], diveSite: "",
+    points: 12, finspan: 2000, size: "large", tags: ["pred", "pred"],
+    abilityType: "when played", isAllPlayers: true, abilityReward: ["egg", "on", "each", "green"],
+    sheet: "6495D42FD5F553CF1CE53CCC425EEFDC0EC81C36", row: 5, col: 1,
+  },
+  {
+    name: "silver lightfish", cost: ["card", "card"], zones: ["Dusk", "Night"], diveSite: "",
+    points: 4, finspan: 30, size: "small", tags: ["bio"],
+    abilityType: "if activated", isAllPlayers: true, abilityReward: ["hatch"],
+    sheet: "6495D42FD5F553CF1CE53CCC425EEFDC0EC81C36", row: 5, col: 2,
+  },
+  {
+    name: "creolefish", cost: ["card", "egg"], zones: ["Sun"], diveSite: "blue",
+    points: 4, finspan: 30, size: "small", tags: [],
+    abilityType: "if activated", isAllPlayers: false, abilityReward: ["tuck"],
+    sheet: "6495D42FD5F553CF1CE53CCC425EEFDC0EC81C36", row: 5, col: 3,
+  },
+  {
+    name: "kawakawa", cost: ["card", "egg", "egg"], zones: ["Sun"], diveSite: "",
+    points: 6, finspan: 100, size: "medium", tags: [],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["egg", "on", "each", "blue"],
+    sheet: "6495D42FD5F553CF1CE53CCC425EEFDC0EC81C36", row: 6, col: 0,
+  },
+  {
+    name: "leafy seadragon", cost: ["egg"], zones: ["Sun"], diveSite: "",
+    points: 2, finspan: 35, size: "small", tags: ["camo"],
+    abilityType: "game end", isAllPlayers: false, abilityReward: ["3", "if", "school", "on", "fish*"],
+    sheet: "6495D42FD5F553CF1CE53CCC425EEFDC0EC81C36", row: 6, col: 1,
+  },
+  {
+    name: "sloan's viperfish", cost: ["card", "egg"], zones: ["Sun", "Night"], diveSite: "",
+    points: 2, finspan: 35, size: "small", tags: ["pred", "bio"],
+    abilityType: "game end", isAllPlayers: false, abilityReward: ["egg", "on", "pred"],
+    sheet: "6495D42FD5F553CF1CE53CCC425EEFDC0EC81C36", row: 6, col: 2,
+  },
+  {
+    name: "blob sculpin", cost: ["egg", "egg"], zones: ["Dusk", "Night"], diveSite: "",
+    points: 2, finspan: 70, size: "medium", tags: [],
+    abilityType: "game end", isAllPlayers: false, abilityReward: ["fish", "in", "green"],
+    sheet: "6495D42FD5F553CF1CE53CCC425EEFDC0EC81C36", row: 6, col: 3,
+  },
+  {
+    name: "crocodilefish", cost: ["card", "egg", "egg"], zones: ["Sun"], diveSite: "",
+    points: 5, finspan: 50, size: "medium", tags: ["pred", "camo"],
+    abilityType: "game end", isAllPlayers: false, abilityReward: ["fish", "in", "blue"],
+    sheet: "25050BEA084E38D38C97EDCA6388CB36AD53C6D2", row: 0, col: 0,
+  },
+  {
+    name: "japanese anchovy", cost: ["card", "egg"], zones: ["Sun", "Dusk"], diveSite: "purple",
+    points: 3, finspan: 18, size: "small", tags: [],
+    abilityType: "if activated", isAllPlayers: false, abilityReward: ["egg"],
+    sheet: "25050BEA084E38D38C97EDCA6388CB36AD53C6D2", row: 0, col: 2,
+  },
+  {
+    name: "atlantic blue fin tuna", cost: ["egg", "egg", "young"], zones: ["Sun", "Dusk"], diveSite: "",
+    points: 7, finspan: 450, size: "large", tags: ["pred"],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["card", "card", "recycle", "recycle"],
+    sheet: "25050BEA084E38D38C97EDCA6388CB36AD53C6D2", row: 0, col: 3,
+  },
+  {
+    name: "banggai cardinalfish", cost: ["egg"], zones: ["Sun"], diveSite: "green",
+    points: 2, finspan: 9, size: "small", tags: [],
+    abilityType: "if activated", isAllPlayers: false, abilityReward: ["hatch"],
+    sheet: "25050BEA084E38D38C97EDCA6388CB36AD53C6D2", row: 1, col: 0,
+  },
+  {
+    name: "black hagfish", cost: ["card", "card", "card"], zones: ["Sun", "Dusk", "Night"], diveSite: "",
+    points: 3, finspan: 64, size: "medium", tags: [],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["young", "recycle"],
+    sheet: "25050BEA084E38D38C97EDCA6388CB36AD53C6D2", row: 1, col: 1,
+  },
+  {
+    name: "stoplight loosejaw", cost: ["card", "young"], zones: ["Dusk", "Night"], diveSite: "",
+    points: 4, finspan: 25, size: "small", tags: ["pred", "camo", "bio"],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["move", "move", "move"],
+    sheet: "25050BEA084E38D38C97EDCA6388CB36AD53C6D2", row: 1, col: 2,
+  },
+  {
+    name: "barramundi", cost: ["egg", "young"], zones: ["Sun"], diveSite: "purple",
+    points: 6, finspan: 200, size: "large", tags: [],
+    abilityType: "if activated", isAllPlayers: false, abilityReward: ["egg"],
+    sheet: "25050BEA084E38D38C97EDCA6388CB36AD53C6D2", row: 1, col: 3,
+  },
+  {
+    name: "scaleless black dragonfish", cost: ["egg"], zones: ["Sun"], diveSite: "blue",
+    points: 4, finspan: 30, size: "small", tags: ["pred", "bio"],
+    abilityType: "if activated", isAllPlayers: false, abilityReward: ["tuck"],
+    sheet: "25050BEA084E38D38C97EDCA6388CB36AD53C6D2", row: 2, col: 0,
+  },
+  {
+    name: "mediterranean parrotfish", cost: ["card", "card", "egg"], zones: ["Sun"], diveSite: "green",
+    points: 5, finspan: 50, size: "medium", tags: [],
+    abilityType: "if activated", isAllPlayers: false, abilityReward: ["hatch"],
+    sheet: "25050BEA084E38D38C97EDCA6388CB36AD53C6D2", row: 2, col: 1,
+  },
+  {
+    name: "great northern tilefish", cost: ["card", "card", "egg"], zones: ["Sun", "Dusk"], diveSite: "green",
+    points: 4, finspan: 125, size: "medium", tags: ["camo"],
+    abilityType: "if activated", isAllPlayers: false, abilityReward: ["hatch", "hatch"],
+    sheet: "25050BEA084E38D38C97EDCA6388CB36AD53C6D2", row: 2, col: 2,
+  },
+  {
+    name: "european flounder", cost: ["card", "card"], zones: ["Sun"], diveSite: "",
+    points: 3, finspan: 60, size: "medium", tags: ["camo"],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["egg", "on", "top"],
+    sheet: "25050BEA084E38D38C97EDCA6388CB36AD53C6D2", row: 2, col: 3,
+  },
+  {
+    name: "bluestreak cleaner wrasse", cost: ["card", "card", "card"], zones: ["Sun"], diveSite: "blue",
+    points: 3, finspan: 14, size: "small", tags: [],
+    abilityType: "if activated", isAllPlayers: false, abilityReward: ["recycle", "recyle"],
+    sheet: "25050BEA084E38D38C97EDCA6388CB36AD53C6D2", row: 3, col: 0,
+  },
+  {
+    name: "sailfin flying fish", cost: ["card", "card"], zones: ["Sun"], diveSite: "blue",
+    points: 3, finspan: 20, size: "small", tags: [],
+    abilityType: "if activated", isAllPlayers: false, abilityReward: ["recycle"],
+    sheet: "25050BEA084E38D38C97EDCA6388CB36AD53C6D2", row: 3, col: 1,
+  },
+  {
+    name: "skipjack tuna", cost: ["card", "egg"], zones: ["Sun", "Dusk"], diveSite: "",
+    points: 5, finspan: 110, size: "medium", tags: ["pred"],
+    abilityType: "if activated", isAllPlayers: true, abilityReward: ["hatch"],
+    sheet: "25050BEA084E38D38C97EDCA6388CB36AD53C6D2", row: 3, col: 2,
+  },
+  {
+    name: "long-snouted lancetfish", cost: ["tuck"], zones: ["Sun", "Dusk", "Night"], diveSite: "",
+    points: 3, finspan: 200, size: "large", tags: ["pred"],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["card", "card", "card", "move"],
+    sheet: "25050BEA084E38D38C97EDCA6388CB36AD53C6D2", row: 3, col: 3,
+  },
+  {
+    name: "angler", cost: ["tuck"], zones: ["Sun", "Dusk"], diveSite: "",
+    points: 4, finspan: 200, size: "large", tags: ["pred"],
+    abilityType: "if activated", isAllPlayers: false, abilityReward: ["move"],
+    sheet: "25050BEA084E38D38C97EDCA6388CB36AD53C6D2", row: 4, col: 0,
+  },
+  {
+    name: "paraliparis", cost: ["card", "egg", "egg"], zones: ["Dusk"], diveSite: "",
+    points: 7, finspan: 17, size: "small", tags: [],
+    abilityType: "if activated", isAllPlayers: true, abilityReward: ["card"],
+    sheet: "25050BEA084E38D38C97EDCA6388CB36AD53C6D2", row: 4, col: 1,
+  },
+  {
+    name: "rockmover wrasse", cost: ["card", "card"], zones: ["Sun"], diveSite: "blue",
+    points: 3, finspan: 30, size: "small", tags: ["camo"],
+    abilityType: "if activated", isAllPlayers: false, abilityReward: ["tuck"],
+    sheet: "25050BEA084E38D38C97EDCA6388CB36AD53C6D2", row: 4, col: 2,
+  },
+  {
+    name: "mediterranean damselfish", cost: ["young"], zones: ["Sun"], diveSite: "purple",
+    points: 4, finspan: 25, size: "small", tags: [],
+    abilityType: "if activated", isAllPlayers: false, abilityReward: ["egg"],
+    sheet: "25050BEA084E38D38C97EDCA6388CB36AD53C6D2", row: 4, col: 3,
+  },
+  {
+    name: "clown anemonefish", cost: ["card", "card"], zones: ["Sun"], diveSite: "",
+    points: 2, finspan: 11, size: "small", tags: [],
+    abilityType: "game end", isAllPlayers: false, abilityReward: ["6", "if", "exactly", "2", "young", "*"],
+    sheet: "25050BEA084E38D38C97EDCA6388CB36AD53C6D2", row: 5, col: 0,
+  },
+  {
+    name: "arabian carpetshark", cost: ["young"], zones: ["Sun"], diveSite: "",
+    points: 4, finspan: 80, size: "medium", tags: ["pred"],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["egg", "on", "each", "pred"],
+    sheet: "25050BEA084E38D38C97EDCA6388CB36AD53C6D2", row: 5, col: 1,
+  },
+  {
+    name: "flabby whalefish", cost: ["card", "card", "card"], zones: ["Dusk", "Night"], diveSite: "",
+    points: 3, finspan: 31, size: "small", tags: [],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["egg", "egg", "hatch"],
+    sheet: "25050BEA084E38D38C97EDCA6388CB36AD53C6D2", row: 5, col: 2,
+  },
+  {
+    name: "false catshark", cost: ["young", "tuck"], zones: ["Dusk", "Night"], diveSite: "",
+    points: 8, finspan: 300, size: "large", tags: ["uber", "pred"],
+    abilityType: "when played", isAllPlayers: true, abilityReward: ["move", "move"],
+    sheet: "25050BEA084E38D38C97EDCA6388CB36AD53C6D2", row: 5, col: 3,
+  },
+  {
+    name: "swordfish", cost: ["card", "egg", "young"], zones: ["Sun", "Dusk", "Night"], diveSite: "",
+    points: 6, finspan: 450, size: "large", tags: ["pred"],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["hatch", "card", "card", "card"],
+    sheet: "25050BEA084E38D38C97EDCA6388CB36AD53C6D2", row: 6, col: 0,
+  },
+  {
+    name: "giant manta ray", cost: ["card", "card", "young"], zones: ["Sun", "Dusk"], diveSite: "",
+    points: 5, finspan: 900, size: "large", tags: [],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["young", "young", "young"],
+    sheet: "25050BEA084E38D38C97EDCA6388CB36AD53C6D2", row: 6, col: 1,
+  },
+  {
+    name: "spookfish", cost: ["card", "card"], zones: ["Dusk"], diveSite: "",
+    points: 5, finspan: 7, size: "small", tags: [],
+    abilityType: "if activated", isAllPlayers: true, abilityReward: ["egg"],
+    sheet: "25050BEA084E38D38C97EDCA6388CB36AD53C6D2", row: 6, col: 2,
+  },
+  {
+    name: "atlantic bonito", cost: ["tuck"], zones: ["Sun"], diveSite: "",
+    points: 3, finspan: 90, size: "medium", tags: ["pred"],
+    abilityType: "game end", isAllPlayers: false, abilityReward: ["6", "if", "tucked", "2+", "*"],
+    sheet: "25050BEA084E38D38C97EDCA6388CB36AD53C6D2", row: 6, col: 3,
+  },
+  {
+    name: "white suckerfish", cost: ["egg", "egg"], zones: ["Sun", "Night"], diveSite: "blue",
+    points: 3, finspan: 30, size: "small", tags: [],
+    abilityType: "if activated", isAllPlayers: false, abilityReward: ["tuck"],
+    sheet: "38203FC619C09737BB7DC4FBBDBC5F5288FFC1FC", row: 0, col: 0,
+  },
+  {
+    name: "spiny seadevil", cost: ["egg", "egg"], zones: ["Dusk", "Night"], diveSite: "",
+    points: 3, finspan: 10, size: "small", tags: ["pred"],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["recycle", "recycle", "recycle"],
+    sheet: "38203FC619C09737BB7DC4FBBDBC5F5288FFC1FC", row: 0, col: 2,
+  },
+  {
+    name: "kaluga", cost: ["card", "card", "young"], zones: ["Sun"], diveSite: "",
+    points: 6, finspan: 560, size: "large", tags: [],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["fish", "in", "top"],
+    sheet: "38203FC619C09737BB7DC4FBBDBC5F5288FFC1FC", row: 0, col: 3,
+  },
+  {
+    name: "faceless cusk", cost: ["card", "card", "card"], zones: ["Bottom"], diveSite: "",
+    points: 2, finspan: 46, size: "small", tags: [],
+    abilityType: "game end", isAllPlayers: false, abilityReward: ["fish", "in", "bottom"],
+    sheet: "38203FC619C09737BB7DC4FBBDBC5F5288FFC1FC", row: 1, col: 0,
+  },
+  {
+    name: "atlantic salmon", cost: ["card", "egg", "egg"], zones: ["Sun"], diveSite: "",
+    points: 5, finspan: 150, size: "large", tags: [],
+    abilityType: "game end", isAllPlayers: false, abilityReward: ["fish", "in", "top"],
+    sheet: "38203FC619C09737BB7DC4FBBDBC5F5288FFC1FC", row: 1, col: 1,
+  },
+  {
+    name: "grideye fish", cost: ["egg", "egg"], zones: ["Night"], diveSite: "",
+    points: 3, finspan: 16, size: "small", tags: [],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["egg", "on", "bottom"],
+    sheet: "38203FC619C09737BB7DC4FBBDBC5F5288FFC1FC", row: 1, col: 2,
+  },
+  {
+    name: "pygmy seahorse", cost: ["card"], zones: ["Sun"], diveSite: "green",
+    points: 1, finspan: 2, size: "small", tags: ["camo"],
+    abilityType: "if activated", isAllPlayers: false, abilityReward: ["hatch"],
+    sheet: "38203FC619C09737BB7DC4FBBDBC5F5288FFC1FC", row: 1, col: 3,
+  },
+  {
+    name: "deepsea lizardfish", cost: ["young", "tuck"], zones: ["Dusk", "Night"], diveSite: "",
+    points: 8, finspan: 65, size: "medium", tags: ["pred", "pred"],
+    abilityType: "when played", isAllPlayers: true, abilityReward: ["hatch", "move"],
+    sheet: "38203FC619C09737BB7DC4FBBDBC5F5288FFC1FC", row: 2, col: 0,
+  },
+  {
+    name: "snaggletooth", cost: ["card", "egg", "young"], zones: ["Sun", "Dusk"], diveSite: "",
+    points: 6, finspan: 16, size: "small", tags: ["pred", "bio"],
+    abilityType: "if activated", isAllPlayers: false, abilityReward: ["move", "move"],
+    sheet: "38203FC619C09737BB7DC4FBBDBC5F5288FFC1FC", row: 2, col: 1,
+  },
+  {
+    name: "abyssal anglerfish", cost: ["card", "egg"], zones: ["Night"], diveSite: "",
+    points: 2, finspan: 12, size: "small", tags: ["pred", "bio"],
+    abilityType: "game end", isAllPlayers: false, abilityReward: ["3", "if", "no", "tokens"],
+    sheet: "38203FC619C09737BB7DC4FBBDBC5F5288FFC1FC", row: 2, col: 2,
+  },
+  {
+    name: "black cardinalfish", cost: ["card", "egg", "egg"], zones: ["Sun", "Dusk"], diveSite: "",
+    points: 5, finspan: 75, size: "medium", tags: [],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["hatch", "hatch", "move"],
+    sheet: "38203FC619C09737BB7DC4FBBDBC5F5288FFC1FC", row: 2, col: 3,
+  },
+  {
+    name: "elsman's whipnose", cost: ["young", "tuck"], zones: ["Dusk", "Night"], diveSite: "",
+    points: 7, finspan: 44, size: "small", tags: ["pred", "bio"],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["card", "recycle", "move"],
+    sheet: "38203FC619C09737BB7DC4FBBDBC5F5288FFC1FC", row: 3, col: 0,
+  },
+  {
+    name: "smooth oreo dory", cost: ["card", "card", "egg"], zones: ["Dusk", "Night"], diveSite: "purple",
+    points: 4, finspan: 70, size: "medium", tags: [],
+    abilityType: "if activated", isAllPlayers: false, abilityReward: ["egg", "on", "bottom"],
+    sheet: "38203FC619C09737BB7DC4FBBDBC5F5288FFC1FC", row: 3, col: 1,
+  },
+  {
+    name: "greenland shark", cost: ["young", "tuck"], zones: ["Dusk", "Night"], diveSite: "",
+    points: 8, finspan: 550, size: "large", tags: ["pred", "pred"],
+    abilityType: "when played", isAllPlayers: true, abilityReward: ["egg", "on", "large"],
+    sheet: "38203FC619C09737BB7DC4FBBDBC5F5288FFC1FC", row: 3, col: 2,
+  },
+  {
+    name: "tripodfish", cost: ["egg", "egg"], zones: ["Dusk", "Night"], diveSite: "",
+    points: 4, finspan: 43, size: "small", tags: [],
+    abilityType: "game end", isAllPlayers: false, abilityReward: ["tuck", "tuck"],
+    sheet: "38203FC619C09737BB7DC4FBBDBC5F5288FFC1FC", row: 3, col: 3,
+  },
+  {
+    name: "pacific sardine", cost: ["card", "card", "card"], zones: ["Sun"], diveSite: "",
+    points: 4, finspan: 40, size: "small", tags: [],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["egg", "egg", "hatch", "hatch"],
+    sheet: "38203FC619C09737BB7DC4FBBDBC5F5288FFC1FC", row: 4, col: 0,
+  },
+  {
+    name: "pilotfish", cost: ["egg", "egg"], zones: ["Sun", "Dusk"], diveSite: "",
+    points: 1, finspan: 70, size: "medium", tags: [],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["recycle", "recycle", "recycle", "recycle"],
+    sheet: "38203FC619C09737BB7DC4FBBDBC5F5288FFC1FC", row: 4, col: 1,
+  },
+  {
+    name: "atlantic wolffish", cost: ["card", "egg", "egg"], zones: ["Sun", "Dusk"], diveSite: "green",
+    points: 5, finspan: 150, size: "large", tags: ["pred"],
+    abilityType: "if activated", isAllPlayers: false, abilityReward: ["hatch"],
+    sheet: "38203FC619C09737BB7DC4FBBDBC5F5288FFC1FC", row: 4, col: 2,
+  },
+  {
+    name: "patagonian toothfish", cost: ["egg", "egg", "egg"], zones: ["Sun", "Dusk", "Night"], diveSite: "",
+    points: 5, finspan: 215, size: "large", tags: ["pred"],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["card", "egg", "hatch", "move"],
+    sheet: "38203FC619C09737BB7DC4FBBDBC5F5288FFC1FC", row: 4, col: 3,
+  },
+  {
+    name: "spotted parrotfish", cost: ["card", "card"], zones: ["Sun"], diveSite: "green",
+    points: 3, finspan: 80, size: "medium", tags: [],
+    abilityType: "if activated", isAllPlayers: false, abilityReward: ["hatch"],
+    sheet: "38203FC619C09737BB7DC4FBBDBC5F5288FFC1FC", row: 5, col: 0,
+  },
+  {
+    name: "footballfish", cost: ["card", "card", "young"], zones: ["Dusk", "Night"], diveSite: "",
+    points: 6, finspan: 17, size: "small", tags: ["pred", "bio"],
+    abilityType: "if activated", isAllPlayers: false, abilityReward: ["move"],
+    sheet: "38203FC619C09737BB7DC4FBBDBC5F5288FFC1FC", row: 5, col: 1,
+  },
+  {
+    name: "haddock", cost: ["card", "egg", "egg"], zones: ["Sun", "Dusk"], diveSite: "",
+    points: 7, finspan: 110, size: "medium", tags: [],
+    abilityType: "if activated", isAllPlayers: true, abilityReward: ["card"],
+    sheet: "38203FC619C09737BB7DC4FBBDBC5F5288FFC1FC", row: 5, col: 2,
+  },
+  {
+    name: "diamond stingray", cost: ["egg"], zones: ["Sun"], diveSite: "",
+    points: 2, finspan: 180, size: "large", tags: ["camo", "venom"],
+    abilityType: "when played", isAllPlayers: false, abilityReward: [],
+    sheet: "38203FC619C09737BB7DC4FBBDBC5F5288FFC1FC", row: 5, col: 3,
+  },
+  {
+    name: "bluespine unicornfish", cost: ["card"], zones: ["Sun"], diveSite: "",
+    points: 4, finspan: 70, size: "medium", tags: [],
+    abilityType: "if activated", isAllPlayers: true, abilityReward: ["hatch"],
+    sheet: "38203FC619C09737BB7DC4FBBDBC5F5288FFC1FC", row: 6, col: 0,
+  },
+  {
+    name: "escolar", cost: ["card", "egg", "egg"], zones: ["Dusk"], diveSite: "",
+    points: 5, finspan: 200, size: "large", tags: [],
+    abilityType: "when played", isAllPlayers: false, abilityReward: [],
+    sheet: "38203FC619C09737BB7DC4FBBDBC5F5288FFC1FC", row: 6, col: 1,
+  },
+  {
+    name: "common fangtooth", cost: ["card", "egg", "egg"], zones: ["Dusk", "Night"], diveSite: "",
+    points: 2, finspan: 16, size: "small", tags: ["pred"],
+    abilityType: "game end", isAllPlayers: false, abilityReward: ["3", "if", "tuck*"],
+    sheet: "38203FC619C09737BB7DC4FBBDBC5F5288FFC1FC", row: 6, col: 2,
+  },
+  {
+    name: "black swallower", cost: ["tuck"], zones: ["Dusk", "Night"], diveSite: "",
+    points: 2, finspan: 25, size: "small", tags: ["pred"],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["fish", "in", "green"],
+    sheet: "38203FC619C09737BB7DC4FBBDBC5F5288FFC1FC", row: 6, col: 3,
+  },
+  {
+    name: "largeeye smooth-head", cost: ["card", "egg"], zones: ["Dusk", "Night"], diveSite: "",
+    points: 4, finspan: 40, size: "small", tags: [],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["egg", "on", "purple"],
+    sheet: "90A0E9580A82136B3FF779EB700F766670EEA59A", row: 0, col: 0,
+  },
+  {
+    name: "giant hawkfish", cost: ["young"], zones: ["Sun"], diveSite: "",
+    points: 4, finspan: 60, size: "medium", tags: ["pred"],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["hatch", "move"],
+    sheet: "90A0E9580A82136B3FF779EB700F766670EEA59A", row: 0, col: 2,
+  },
+  {
+    name: "honeycomb scaly dragonfish", cost: ["card", "egg", "egg"], zones: ["Sun", "Dusk", "Night"], diveSite: "",
+    points: 4, finspan: 22, size: "small", tags: ["pred", "bio"],
+    abilityType: "game end", isAllPlayers: false, abilityReward: ["young", "move"],
+    sheet: "90A0E9580A82136B3FF779EB700F766670EEA59A", row: 0, col: 3,
+  },
+  {
+    name: "largetooth flounder", cost: ["card", "card", "card"], zones: ["Sun"], diveSite: "",
+    points: 5, finspan: 45, size: "small", tags: ["camo"],
+    abilityType: "game end", isAllPlayers: false, abilityReward: ["egg", "on", "green"],
+    sheet: "90A0E9580A82136B3FF779EB700F766670EEA59A", row: 1, col: 0,
+  },
+  {
+    name: "wolftrap angler", cost: ["young"], zones: ["Dusk", "Night"], diveSite: "",
+    points: 3, finspan: 12, size: "small", tags: ["pred", "bio"],
+    abilityType: "if activated", isAllPlayers: false, abilityReward: ["move"],
+    sheet: "90A0E9580A82136B3FF779EB700F766670EEA59A", row: 1, col: 1,
+  },
+  {
+    name: "snipe eel", cost: ["card", "card"], zones: ["Dusk", "Night"], diveSite: "",
+    points: 4, finspan: 80, size: "medium", tags: [],
+    abilityType: "if activated", isAllPlayers: true, abilityReward: ["egg"],
+    sheet: "90A0E9580A82136B3FF779EB700F766670EEA59A", row: 1, col: 2,
+  },
+  {
+    name: "pudgy cusk-eel", cost: ["card", "egg", "egg"], zones: ["Night"], diveSite: "",
+    points: 4, finspan: 125, size: "medium", tags: [],
+    abilityType: "game end", isAllPlayers: false, abilityReward: ["egg", "on", "blue"],
+    sheet: "90A0E9580A82136B3FF779EB700F766670EEA59A", row: 1, col: 3,
+  },
+  {
+    name: "oceanic puffer", cost: ["card", "card"], zones: ["Sun", "Dusk"], diveSite: "",
+    points: 5, finspan: 60, size: "medium", tags: ["poison"],
+    abilityType: "if activated", isAllPlayers: true, abilityReward: ["move"],
+    sheet: "90A0E9580A82136B3FF779EB700F766670EEA59A", row: 2, col: 0,
+  },
+  {
+    name: "maltese ray", cost: ["egg", "egg"], zones: ["Sun", "Dusk"], diveSite: "",
+    points: 3, finspan: 40, size: "small", tags: ["camo"],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["egg", "on", "small"],
+    sheet: "90A0E9580A82136B3FF779EB700F766670EEA59A", row: 2, col: 1,
+  },
+  {
+    name: "pacific white skate", cost: ["egg", "egg"], zones: ["Dusk", "Night"], diveSite: "",
+    points: 3, finspan: 150, size: "large", tags: [],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["hatch", "young"],
+    sheet: "90A0E9580A82136B3FF779EB700F766670EEA59A", row: 2, col: 2,
+  },
+  {
+    name: "false cleanerfish", cost: ["card", "card"], zones: ["Sun"], diveSite: "blue",
+    points: 2, finspan: 11, size: "small", tags: ["pred"],
+    abilityType: "if activated", isAllPlayers: false, abilityReward: ["recycle"],
+    sheet: "90A0E9580A82136B3FF779EB700F766670EEA59A", row: 2, col: 3,
+  },
+  {
+    name: "little skate", cost: ["card", "card", "card"], zones: ["Sun", "Dusk"], diveSite: "",
+    points: 6, finspan: 50, size: "medium", tags: ["electric"],
+    abilityType: "if activated", isAllPlayers: true, abilityReward: ["move"],
+    sheet: "90A0E9580A82136B3FF779EB700F766670EEA59A", row: 3, col: 0,
+  },
+  {
+    name: "humphead wrasse", cost: ["egg", "egg"], zones: ["Sun"], diveSite: "",
+    points: 4, finspan: 225, size: "large", tags: [],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["egg", "on", "green"],
+    sheet: "90A0E9580A82136B3FF779EB700F766670EEA59A", row: 3, col: 1,
+  },
+  {
+    name: "gray triggerfish", cost: ["card", "egg", "egg"], zones: ["Sun"], diveSite: "blue",
+    points: 5, finspan: 60, size: "medium", tags: [],
+    abilityType: "if activated", isAllPlayers: false, abilityReward: ["recycle"],
+    sheet: "90A0E9580A82136B3FF779EB700F766670EEA59A", row: 3, col: 2,
+  },
+  {
+    name: "pelican eel", cost: ["tuck"], zones: ["Dusk", "Night"], diveSite: "",
+    points: 3, finspan: 100, size: "medium", tags: ["uber", "pred"],
+    abilityType: "when played", isAllPlayers: true, abilityReward: ["egg", "on", "medium"],
+    sheet: "90A0E9580A82136B3FF779EB700F766670EEA59A", row: 3, col: 3,
+  },
+  {
+    name: "angelshark", cost: ["tuck"], zones: ["Sun"], diveSite: "",
+    points: 2, finspan: 240, size: "large", tags: ["pred", "camo"],
+    abilityType: "game end", isAllPlayers: false, abilityReward: ["10", "if", "3", "tucked*"],
+    sheet: "90A0E9580A82136B3FF779EB700F766670EEA59A", row: 4, col: 0,
+  },
+  {
+    name: "live sharksucker", cost: ["egg", "egg"], zones: ["Sun"], diveSite: "",
+    points: 4, finspan: 110, size: "medium", tags: [],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["tuck", "2"],
+    sheet: "90A0E9580A82136B3FF779EB700F766670EEA59A", row: 4, col: 1,
+  },
+  {
+    name: "longspine porcupinefish", cost: ["card", "card", "egg"], zones: ["Sun"], diveSite: "",
+    points: 5, finspan: 50, size: "medium", tags: ["venom"],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["egg", "on", "medium"],
+    sheet: "90A0E9580A82136B3FF779EB700F766670EEA59A", row: 4, col: 2,
+  },
+  {
+    name: "bearded seadevil", cost: ["card", "card", "young"], zones: ["Dusk", "Night"], diveSite: "",
+    points: 5, finspan: 23, size: "small", tags: ["uber", "pred", "bio"],
+    abilityType: "when played", isAllPlayers: true, abilityReward: ["egg", "on", "small"],
+    sheet: "90A0E9580A82136B3FF779EB700F766670EEA59A", row: 4, col: 3,
+  },
+  {
+    name: "sargassum fish", cost: ["card", "young"], zones: ["Sun"], diveSite: "blue",
+    points: 6, finspan: 20, size: "small", tags: ["pred", "camo"],
+    abilityType: "if activated", isAllPlayers: false, abilityReward: ["tuck", "2"],
+    sheet: "90A0E9580A82136B3FF779EB700F766670EEA59A", row: 5, col: 0,
+  },
+  {
+    name: "largeeye tuna", cost: ["young", "young"], zones: ["Sun", "Dusk"], diveSite: "purple",
+    points: 8, finspan: 235, size: "large", tags: ["pred", "camo"],
+    abilityType: "if activated", isAllPlayers: false, abilityReward: ["egg"],
+    sheet: "90A0E9580A82136B3FF779EB700F766670EEA59A", row: 5, col: 1,
+  },
+  {
+    name: "paintspotted moray", cost: ["egg", "egg"], zones: ["Sun"], diveSite: "",
+    points: 4, finspan: 140, size: "medium", tags: ["pred", "camo"],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["recycle", "recycle", "recycle"],
+    sheet: "90A0E9580A82136B3FF779EB700F766670EEA59A", row: 5, col: 2,
+  },
+  {
+    name: "cookiecutter shark", cost: ["tuck"], zones: ["Sun", "Dusk", "Night"], diveSite: "",
+    points: 3, finspan: 56, size: "medium", tags: ["pred"],
+    abilityType: "game end", isAllPlayers: false, abilityReward: ["5", "if", "in", "bottom"],
+    sheet: "90A0E9580A82136B3FF779EB700F766670EEA59A", row: 5, col: 3,
+  },
+  {
+    name: "giant trevally", cost: ["egg", "young"], zones: ["Sun"], diveSite: "",
+    points: 5, finspan: 170, size: "large", tags: [],
+    abilityType: "game end", isAllPlayers: false, abilityReward: ["fish", "in", "purple"],
+    sheet: "90A0E9580A82136B3FF779EB700F766670EEA59A", row: 6, col: 0,
+  },
+  {
+    name: "mahi-mahi", cost: ["card", "egg", "egg"], zones: ["Sun"], diveSite: "",
+    points: 7, finspan: 210, size: "large", tags: ["pred"],
+    abilityType: "if activated", isAllPlayers: true, abilityReward: ["egg"],
+    sheet: "90A0E9580A82136B3FF779EB700F766670EEA59A", row: 6, col: 1,
+  },
+  {
+    name: "atlantic sturgeon", cost: ["card", "egg", "young"], zones: ["Sun"], diveSite: "blue",
+    points: 8, finspan: 400, size: "large", tags: [],
+    abilityType: "if activated", isAllPlayers: false, abilityReward: ["recycle"],
+    sheet: "90A0E9580A82136B3FF779EB700F766670EEA59A", row: 6, col: 2,
+  },
+  {
+    name: "yellowtail snapper", cost: ["card"], zones: ["Sun"], diveSite: "",
+    points: 1, finspan: 85, size: "medium", tags: [],
+    abilityType: "game end", isAllPlayers: false, abilityReward: ["egg", "on", "purple"],
+    sheet: "90A0E9580A82136B3FF779EB700F766670EEA59A", row: 6, col: 3,
+  },
+  {
+    name: "longfin batfish", cost: ["egg"], zones: ["Sun"], diveSite: "",
+    points: 4, finspan: 70, size: "medium", tags: [],
+    abilityType: "if activated", isAllPlayers: true, abilityReward: ["card"],
+    sheet: "00739914B4A57AA5ECABB5380B2F9873E3BD356C", row: 0, col: 0,
+  },
+  {
+    name: "bonefish", cost: ["egg"], zones: ["Sun"], diveSite: "",
+    points: 4, finspan: 100, size: "medium", tags: [],
+    abilityType: "if activated", isAllPlayers: true, abilityReward: ["egg"],
+    sheet: "00739914B4A57AA5ECABB5380B2F9873E3BD356C", row: 0, col: 1,
+  },
+  {
+    name: "blue lanternfish", cost: ["card", "card"], zones: ["Dusk"], diveSite: "",
+    points: 1, finspan: 13, size: "small", tags: ["bio"],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["card", "card", "card", "card"],
+    sheet: "00739914B4A57AA5ECABB5380B2F9873E3BD356C", row: 0, col: 2,
+  },
+  {
+    name: "porkfish", cost: ["egg"], zones: ["Sun"], diveSite: "purple",
+    points: 2, finspan: 0, size: "small", tags: [],
+    abilityType: "if activated", isAllPlayers: false, abilityReward: ["egg"],
+    sheet: "00739914B4A57AA5ECABB5380B2F9873E3BD356C", row: 0, col: 3,
+  },
+  {
+    name: "saddleback butterflyfish", cost: ["card", "card"], zones: ["Sun"], diveSite: "",
+    points: 5, finspan: 30, size: "small", tags: [],
+    abilityType: "if activated", isAllPlayers: true, abilityReward: ["hatch"],
+    sheet: "00739914B4A57AA5ECABB5380B2F9873E3BD356C", row: 1, col: 0,
+  },
+  {
+    name: "orange roughy", cost: ["card", "card"], zones: ["Dusk", "Night"], diveSite: "",
+    points: 1, finspan: 75, size: "medium", tags: [],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["card", "card", "card", "recycle"],
+    sheet: "00739914B4A57AA5ECABB5380B2F9873E3BD356C", row: 1, col: 1,
+  },
+  {
+    name: "barreleye", cost: ["egg", "egg"], zones: ["Dusk", "Night"], diveSite: "green",
+    points: 3, finspan: 15, size: "small", tags: [],
+    abilityType: "if activated", isAllPlayers: false, abilityReward: ["hatch"],
+    sheet: "00739914B4A57AA5ECABB5380B2F9873E3BD356C", row: 1, col: 2,
+  },
+  {
+    name: "mandarinfish", cost: ["card"], zones: ["Sun"], diveSite: "",
+    points: 1, finspan: 7, size: "small", tags: [],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["card", "card", "card", "egg"],
+    sheet: "00739914B4A57AA5ECABB5380B2F9873E3BD356C", row: 1, col: 3,
+  },
+  {
+    name: "white-banded triggerfish", cost: ["card", "card"], zones: ["Sun"], diveSite: "blue",
+    points: 1, finspan: 40, size: "small", tags: [],
+    abilityType: "if activated", isAllPlayers: false, abilityReward: ["recycle"],
+    sheet: "00739914B4A57AA5ECABB5380B2F9873E3BD356C", row: 2, col: 0,
+  },
+  {
+    name: "tropical two-wing flying fish", cost: ["card", "egg"], zones: ["Sun"], diveSite: "blue",
+    points: 4, finspan: 30, size: "small", tags: [],
+    abilityType: "if activated", isAllPlayers: false, abilityReward: ["recycle"],
+    sheet: "00739914B4A57AA5ECABB5380B2F9873E3BD356C", row: 2, col: 1,
+  },
+  {
+    name: "smoothcheek lanternfish", cost: ["card", "card"], zones: ["Sun", "Dusk"], diveSite: "",
+    points: 1, finspan: 5, size: "small", tags: ["bio"],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["egg", "egg", "card", "card"],
+    sheet: "00739914B4A57AA5ECABB5380B2F9873E3BD356C", row: 2, col: 2,
+  },
+  {
+    name: "atlantic sailfish", cost: ["card", "egg", "young"], zones: ["Sun"], diveSite: "",
+    points: 8, finspan: 315, size: "large", tags: ["pred"],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["card", "card", "card"],
+    sheet: "00739914B4A57AA5ECABB5380B2F9873E3BD356C", row: 2, col: 3,
+  },
+  {
+    name: "european anchovy", cost: ["card", "card", "card"], zones: ["Sun", "Dusk"], diveSite: "",
+    points: 3, finspan: 20, size: "small", tags: [],
+    abilityType: "game end", isAllPlayers: false, abilityReward: ["egg", "on", "top"],
+    sheet: "00739914B4A57AA5ECABB5380B2F9873E3BD356C", row: 3, col: 0,
+  },
+  {
+    name: "giant devil ray", cost: ["card", "egg", "young"], zones: ["Sun", "Dusk", "Night"], diveSite: "",
+    points: 7, finspan: 520, size: "large", tags: [],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["young", "young"],
+    sheet: "00739914B4A57AA5ECABB5380B2F9873E3BD356C", row: 3, col: 1,
+  },
+  {
+    name: "binocular fish", cost: ["card", "card", "card"], zones: ["Dusk", "Night"], diveSite: "",
+    points: 1, finspan: 15, size: "small", tags: [],
+    abilityType: "game end", isAllPlayers: false, abilityReward: ["egg", "on", "small"],
+    sheet: "00739914B4A57AA5ECABB5380B2F9873E3BD356C", row: 3, col: 2,
+  },
+  {
+    name: "atlantic mackerel", cost: ["card", "egg", "egg"], zones: ["Sun", "Dusk"], diveSite: "purple",
+    points: 4, finspan: 60, size: "medium", tags: [],
+    abilityType: "if activated", isAllPlayers: false, abilityReward: ["egg", "egg"],
+    sheet: "00739914B4A57AA5ECABB5380B2F9873E3BD356C", row: 3, col: 3,
+  },
+  {
+    name: "humpback anglerfish", cost: ["young", "young"], zones: ["Dusk", "Night"], diveSite: "",
+    points: 8, finspan: 18, size: "small", tags: ["pred", "pred", "bio"],
+    abilityType: "when played", isAllPlayers: true, abilityReward: ["egg", "on", "bottom"],
+    sheet: "7F3DB5446970DA168F569274083DDA82364B1A12", row: 0, col: 0,
+  },
+  {
+    name: "european sturgeon", cost: ["egg", "egg", "young"], zones: ["Sun"], diveSite: "blue",
+    points: 9, finspan: 600, size: "large", tags: [],
+    abilityType: "if activated", isAllPlayers: false, abilityReward: ["recycle"],
+    sheet: "7F3DB5446970DA168F569274083DDA82364B1A12", row: 0, col: 2,
+  },
+  {
+    name: "bluntnose sixgill shark", cost: ["young", "tuck"], zones: ["Sun", "Dusk", "Night"], diveSite: "",
+    points: 8, finspan: 550, size: "large", tags: ["pred", "pred"],
+    abilityType: "when played", isAllPlayers: true, abilityReward: ["egg", "on", "purple"],
+    sheet: "7F3DB5446970DA168F569274083DDA82364B1A12", row: 0, col: 3,
+  },
+  {
+    name: "shortspine spurdog", cost: ["card", "card", "egg"], zones: ["Sun", "Dusk"], diveSite: "",
+    points: 4, finspan: 90, size: "medium", tags: ["pred", "venom"],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["young", "young"],
+    sheet: "7F3DB5446970DA168F569274083DDA82364B1A12", row: 1, col: 0,
+  },
+  {
+    name: "mediumwater scorpionfish", cost: ["card", "card", "card"], zones: ["Sun", "Dusk", "Night"], diveSite: "",
+    points: 3, finspan: 18, size: "small", tags: ["venom"],
+    abilityType: "if activated", isAllPlayers: false, abilityReward: ["move"],
+    sheet: "7F3DB5446970DA168F569274083DDA82364B1A12", row: 1, col: 1,
+  },
+  {
+    name: "red scorpionfish", cost: ["card", "egg", "young"], zones: ["Sun", "Dusk"], diveSite: "",
+    points: 7, finspan: 50, size: "medium", tags: ["pred", "camo", "venom"],
+    abilityType: "if activated", isAllPlayers: false, abilityReward: ["move"],
+    sheet: "7F3DB5446970DA168F569274083DDA82364B1A12", row: 1, col: 2,
+  },
+  {
+    name: "pennant coralfish", cost: ["egg"], zones: ["Sun"], diveSite: "blue",
+    points: 2, finspan: 25, size: "small", tags: [],
+    abilityType: "if activated", isAllPlayers: false, abilityReward: ["tuck"],
+    sheet: "7F3DB5446970DA168F569274083DDA82364B1A12", row: 1, col: 3,
+  },
+  {
+    name: "yellow boxfish", cost: ["card", "card"], zones: ["Sun"], diveSite: "",
+    points: 6, finspan: 45, size: "small", tags: ["venom"],
+    abilityType: "if activated", isAllPlayers: true, abilityReward: ["move"],
+    sheet: "7F3DB5446970DA168F569274083DDA82364B1A12", row: 2, col: 0,
+  },
+  {
+    name: "shortspine african angler", cost: ["young", "tuck"], zones: ["Sun", "Dusk", "Night"], diveSite: "",
+    points: 7, finspan: 80, size: "medium", tags: ["pred", "camo"],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["move", "card", "card"],
+    sheet: "7F3DB5446970DA168F569274083DDA82364B1A12", row: 2, col: 1,
+  },
+  {
+    name: "plate fish", cost: ["card", "egg"], zones: ["Sun"], diveSite: "green",
+    points: 4, finspan: 50, size: "medium", tags: ["camo"],
+    abilityType: "if activated", isAllPlayers: false, abilityReward: ["hatch"],
+    sheet: "7F3DB5446970DA168F569274083DDA82364B1A12", row: 2, col: 2,
+  },
+  {
+    name: "red lionfish", cost: ["card"], zones: ["Sun"], diveSite: "",
+    points: 1, finspan: 45, size: "small", tags: ["pred", "venom"],
+    abilityType: "when played", isAllPlayers: false, abilityReward: ["fish", "in", "sun"],
+    sheet: "7F3DB5446970DA168F569274083DDA82364B1A12", row: 2, col: 3,
+  },
+];
+const CARD_NAME_TO_INDEX = new Map(CARD_DATA.map((c, i) => [c.name, i]));
+
+/* =========================================================
+   2b. FORAGE FISH / STARTER POOL / ROUND BONUS DATA
+   ========================================================= */
+
+const FORAGE_FISH_DATA = {
+  name: "Forage Fish", cost: [], zones: ["Sun", "Dusk", "Night"], diveSite: "",
+  points: 0, finspan: 1, size: "small", tags: ["forage"],
+  abilityType: "", isAllPlayers: false, abilityReward: [],
+  sheet: "6495D42FD5F553CF1CE53CCC425EEFDC0EC81C36", row: 0, col: 1,
+};
+
+const STARTER_NAMES = [
+  "longfin batfish", "bonefish", "blue lanternfish", "porkfish",
+  "saddleback butterflyfish", "orange roughy", "barreleye", "mandarinfish",
+  "white-banded triggerfish", "smoothcheek lanternfish",
+];
+
+const ROUND_BONUS_DESCRIPTIONS = [
+  { name: "Nursery Grounds", text: "3 points per young fish" },
+  { name: "Spawning Season", text: "1 point per egg or young fish" },
+  { name: "Fresh Broods", text: "1 point per young fish" },
+  { name: "Consumers", text: "2 points per consumed (tucked) fish" },
+  { name: "Deep Giants", text: "2 points per large fish" },
+  { name: "Clutch Counter", text: "2 points per 3 eggs" },
+  { name: "Growing Numbers", text: "2 points per young fish" },
+  { name: "Mid-size Survey", text: "2 points per medium fish" },
+  { name: "Special Adaptations", text: "1 point per electric / bioluminescent / camo / venomous fish" },
+  { name: "Full Ranks", text: "2 points per fully occupied row" },
+  { name: "Small Wonders", text: "2 points per small fish" },
+  { name: "Tagged & Tracked", text: "1 point per fish with a token (egg/young/school)" },
+  { name: "Egg Count", text: "3 points per 2 eggs" },
+  { name: "Apex Survey", text: "2 points per predator fish" },
+  { name: "Active Divers", text: "2 points per fish with an 'if activated' ability" },
+  { name: "Census", text: "1 point per fish on board" },
+  { name: "Bare Waters", text: "1 point per fish with no token" },
+  { name: "School's In", text: "3 points per school" },
+];
+
+function countAll(board, fn) {
+  let c = 0;
+  for (let i = 0; i < 6; i++) for (let j = 0; j < 3; j++) c += fn(i, j) || 0;
+  return c;
+}
+function hasPredTag(card) {
+  return !!card && card.tags && (card.tags.includes("pred") || card.tags.includes("predator"));
+}
+
+// index 0-17, matches ROUND_BONUS_DESCRIPTIONS order (bugfix: #10/index9 "full row" polarity fixed;
+// #9/index8 tag names fixed to match actual data tags 'electric'/'bio'/'camo'/'venom';
+// #14/index13 predator check matches both 'pred' and 'predator' tags)
+const ROUND_BONUS_CALCULATIONS = [
+  (b) => countAll(b, (i, j) => b.young[i][j]) * 3,
+  (b) => countAll(b, (i, j) => b.young[i][j] + b.eggs[i][j]) * 1,
+  (b) => countAll(b, (i, j) => b.young[i][j]) * 1,
+  (b) => countAll(b, (i, j) => b.tucked[i][j].length) * 2,
+  (b) => countAll(b, (i, j) => (b.fish[i][j] && b.fish[i][j].size === "large") ? 1 : 0) * 2,
+  (b) => Math.floor(countAll(b, (i, j) => b.eggs[i][j]) / 3) * 2,
+  (b) => countAll(b, (i, j) => b.young[i][j]) * 2,
+  (b) => countAll(b, (i, j) => (b.fish[i][j] && b.fish[i][j].size === "medium") ? 1 : 0) * 2,
+  (b) => {
+    const tags = ["electric", "bio", "camo", "venom"];
+    return countAll(b, (i, j) => {
+      if (!b.fish[i][j]) return 0;
+      let n = 0;
+      for (const t of tags) if (b.fish[i][j].tags.includes(t)) n++;
+      return n;
+    }) * 1;
+  },
+  (b) => {
+    let count = 0;
+    for (let i = 0; i < 6; i++) {
+      let rowFull = true;
+      for (let j = 0; j < 3; j++) if (!b.fish[i][j]) { rowFull = false; break; }
+      if (rowFull) count++;
+    }
+    return count * 2;
+  },
+  (b) => countAll(b, (i, j) => (b.fish[i][j] && b.fish[i][j].size === "small") ? 1 : 0) * 2,
+  (b) => countAll(b, (i, j) => (b.fish[i][j] && (b.eggs[i][j] > 0 || b.young[i][j] > 0 || b.schools[i][j] > 0)) ? 1 : 0) * 1,
+  (b) => Math.floor(countAll(b, (i, j) => b.eggs[i][j]) / 2) * 3,
+  (b) => countAll(b, (i, j) => hasPredTag(b.fish[i][j]) ? 1 : 0) * 2,
+  (b) => countAll(b, (i, j) => (b.fish[i][j] && b.fish[i][j].abilityType === "if activated") ? 1 : 0) * 2,
+  (b) => countAll(b, (i, j) => b.fish[i][j] ? 1 : 0) * 1,
+  (b) => countAll(b, (i, j) => (b.fish[i][j] && b.eggs[i][j] === 0 && b.young[i][j] === 0 && b.schools[i][j] === 0) ? 1 : 0) * 1,
+  (b) => countAll(b, (i, j) => b.schools[i][j]) * 3,
+];
+
+const ROUND_BONUS_POOLS = [
+  [1, 2, 4, 11, 14, 16],
+  [7, 8, 9, 10, 12, 13],
+  [3, 5, 6, 15, 17, 18],
+];
+
+// game-end named-fish abilities, keyed by lowercase card name
+// (bugfix: "pala chimera" -> "pale chimera" to match actual card name)
+const END_OF_GAME_ABILITY_REWARDS = {
+  "pale chimera": (b, i, j) => (b.young[i][j] > 0 && b.eggs[i][j] > 0 && b.schools[i][j] > 0) ? 10 : 0,
+  "leafy seadragon": (b, i, j) => (b.schools[i][j] > 0) ? 3 : 0,
+  "clown anemonefish": (b, i, j) => (b.young[i][j] === 2) ? 6 : 0,
+  "atlantic bonito": (b, i, j) => (b.tucked[i][j].length >= 2) ? 6 : 0,
+  "abyssal anglerfish": (b, i, j) => (b.young[i][j] === 0 && b.eggs[i][j] === 0 && b.schools[i][j] === 0) ? 3 : 0,
+  "common fangtooth": (b, i, j) => (b.tucked[i][j].length > 0) ? 3 : 0,
+  "angelshark": (b, i, j) => (b.tucked[i][j].length >= 3) ? 10 : 0,
+  "cookiecutter shark": (b, i, j) => (i >= 5) ? 5 : 0,
+};
+function countEndOfGameAbilityPoints(board) {
+  let points = 0;
+  for (let i = 0; i < 6; i++) {
+    for (let j = 0; j < 3; j++) {
+      const card = board.fish[i][j];
+      if (card && END_OF_GAME_ABILITY_REWARDS[card.name.toLowerCase()]) {
+        points += END_OF_GAME_ABILITY_REWARDS[card.name.toLowerCase()](board, i, j);
+      }
+    }
+  }
+  return points;
+}
+
+/* =========================================================
+   3. GAME STATE
+   ========================================================= */
+
+let uidCounter = 1;
+function uid(prefix) { return prefix + "_" + (uidCounter++) + "_" + Math.random().toString(36).slice(2, 7); }
+
+function makeCardInstance(data) {
+  return Object.assign({}, data, { instanceId: uid("card") });
+}
+function makeForageFish() { return makeCardInstance(FORAGE_FISH_DATA); }
+
+function emptyBoard() {
+  const mk = (fill) => Array.from({ length: 6 }, () => Array.from({ length: 3 }, () => fill));
+  return {
+    fish: mk(null),
+    eggs: mk(0),
+    young: mk(0),
+    schools: mk(0),
+    tucked: Array.from({ length: 6 }, () => Array.from({ length: 3 }, () => [])),
+  };
+}
+
+function newPlayerState(id, name, peerId) {
+  return {
+    id, name: name || "Player", peerId: peerId || null,
+    hand: [], discard: [],
+    board: emptyBoard(),
+    uses: { playFish: 0, blueSite: 0, purpleSite: 0, greenSite: 0 },
+    actionsThisRound: [],
+    roundPoints: [0, 0, 0, 0],
+    pendingBonuses: [],
+    finishedGame: false,
+    connected: true,
+  };
+}
+
+function myPlayer() { return state.players[state.myPlayerId]; }
+function playerIsDoneThisRound(player) {
+  if (!player) return false;
+  if (state.currentRound >= 4) return player.finishedGame === true;
+  const total = player.uses.playFish + player.uses.blueSite + player.uses.purpleSite + player.uses.greenSite;
+  return total >= 6;
+}
+
+const state = {
+  gameId: null,
+  boardDirty: true, // forces renderBoard() to do a full rebuild next time; see renderBoard()
+  players: {},
+  playerOrder: [],
+  myPlayerId: "p_" + Math.random().toString(36).slice(2, 8),
+  activePlayerId: null,
+  currentRound: 1,
+  roundBonuses: [null, null, null],
+  deck: [],
+  queue: [],
+  selections: [],
+  selectedInstanceId: null,
+  actionLog: [],
+  gameStarted: false,
+  gameOver: false,
+  finalScores: null,
+  pendingIdentityChoice: false,
+  isAsyncGame: false,
+  isPassAndPlay: false, // async mode variant: same device swaps identity on End Turn instead of generating a link
+  history: [],
+  endGameUsedSlots: {},
+  net: {
+    peer: null, myPeerId: "", myUsername: "", peerIdError: "", myName: "Player",
+    conns: {}, connectionStatus: {}, peerNames: {}, chatLog: [], isHost: false,
+  },
+  ui: {
+    activeDrawer: null, bonusesVisible: true,
+    asyncPlayerInputs: ["You", "Friend"],
+  },
+  actedThisTurn: false,
+};
+
+function isMyTurn() { return state.gameStarted && !state.gameOver && state.activePlayerId === state.myPlayerId; }
+
+function setState(patch) {
+  if (typeof patch === "function") patch(state);
+  else Object.assign(state, patch);
+  render();
+}
+
+function pushLog(msg) {
+  state.actionLog.push(msg);
+}
+
+/* =========================================================
+   4. SETUP
+   ========================================================= */
+
+function shuffle(array) {
+  let i = array.length;
+  while (i !== 0) {
+    const r = Math.floor(Math.random() * i);
+    i--;
+    [array[i], array[r]] = [array[r], array[i]];
+  }
+  return array;
+}
+
+function buildDeck() {
+  return shuffle(CARD_DATA.map(makeCardInstance));
+}
+
+function drawStartingHand(deck) {
+  const hand = [];
+  const usedNames = new Set();
+  let guard = 0;
+  while (hand.length < 2 && deck.length > 0 && guard < 200) {
+    guard++;
+    const wantName = STARTER_NAMES[Math.floor(Math.random() * STARTER_NAMES.length)];
+    if (usedNames.has(wantName)) continue;
+    const idx = deck.findIndex((c) => c.name.toLowerCase() === wantName);
+    if (idx === -1) continue;
+    usedNames.add(wantName);
+    hand.push(deck.splice(idx, 1)[0]);
+  }
+  for (let i = 0; i < 3 && deck.length > 0; i++) hand.push(deck.pop());
+  return hand;
+}
+
+function placeStartingForage(board) {
+  const f1 = makeForageFish(); board.fish[4][0] = f1; board.eggs[4][0] = 1;
+  const f2 = makeForageFish(); board.fish[3][1] = f2; board.young[3][1] = 1; // bugfix: was young[2][1] (empty slot)
+  const f3 = makeForageFish(); board.fish[1][2] = f3; board.eggs[1][2] = 1;
+}
+
+function rollRoundBonuses() {
+  return ROUND_BONUS_POOLS.map((pool) => pool[Math.floor(Math.random() * pool.length)] - 1);
+}
+
+function setupGame(playerInfos, roundBonuses, deckOrder, gameId) {
+  // playerInfos: [{id,name,peerId}] in turn order
+  const deck = deckOrder ? deckOrder.map(makeCardInstance) : buildDeck();
+  state.gameId = gameId || Math.random().toString(36).slice(2, 10);
+  state.boardDirty = true;
+  state.players = {};
+  state.playerOrder = playerInfos.map((p) => p.id);
+  for (const info of playerInfos) {
+    const ps = newPlayerState(info.id, info.name, info.peerId);
+    placeStartingForage(ps.board);
+    ps.hand = drawStartingHand(deck);
+    state.players[info.id] = ps;
+  }
+  state.deck = deck;
+  state.currentRound = 1;
+  state.roundBonuses = roundBonuses || rollRoundBonuses();
+  state.activePlayerId = state.playerOrder[0];
+  state.queue = [];
+  state.selections = [];
+  state.selectedInstanceId = null;
+  state.gameStarted = true;
+  state.gameOver = false;
+  state.endGameUsedSlots = {};
+  state.history = [];
+  state.actedThisTurn = false;
+  pushLog("Game started. " + state.players[state.activePlayerId].name + "'s turn.");
+  saveHistorySnapshot(); // seed the undo stack with the freshly-initialized state so the first turn can be undone
+}
+
+/* =========================================================
+   5. RULES / PURE HELPERS
+   ========================================================= */
+
+// background-size/background-position pair for one axis of a sprite-sheet cell, zoomed in by
+// `zoom` around the cell's own center (not the sheet's) so the crop stays anchored on that
+// cell's art no matter how far zoomed -- this is what lets CARD_ART_ZOOM crop away the sliver
+// of neighboring-cell bleed without needing to know the sheet's exact gutter width.
+function spriteAxis(index, count, zoom) {
+  if (count <= 1) return { size: 100 * zoom, pos: 0 };
+  const size = count * zoom * 100;
+  const pos = (100 * (zoom * (index + 0.5) - 0.5)) / (count * zoom - 1);
+  return { size, pos };
+}
+
+function cardImageStyle(card) {
+  if (!card) return "";
+  if (!card.sheet) return ""; // defensive fallback: no sheet, no card art to show (game-end bonus uses gameEndBadgeHtml() instead, not an image)
+  probeSheetAvailability(card.sheet);
+  const sheet = SPRITE_SHEETS[card.sheet] || { cols: 4, rows: 7 };
+  const url = sheetImageUrl(card.sheet);
+  const x = spriteAxis(card.col, sheet.cols, CARD_ART_ZOOM);
+  const y = spriteAxis(card.row, sheet.rows, CARD_ART_ZOOM);
+  return `background-image:url('${url}');background-size:${x.size}% ${y.size}%;background-position:${x.pos}% ${y.pos}%;`;
+}
+
+function roundBonusCardStyle(idx) {
+  const sheet = SPRITE_SHEETS[ROUND_BONUS_SHEET];
+  probeSheetAvailability(ROUND_BONUS_SHEET);
+  const row = Math.floor(idx / sheet.cols), col = idx % sheet.cols;
+  const url = sheetImageUrl(ROUND_BONUS_SHEET);
+  const x = spriteAxis(col, sheet.cols, CARD_ART_ZOOM);
+  const y = spriteAxis(row, sheet.rows, CARD_ART_ZOOM);
+  return `background-image:url('${url}');background-size:${x.size}% ${y.size}%;background-position:${x.pos}% ${y.pos}%;`;
+}
+
+// the fixed "game end" bonus has no card-sheet art at all (its old local-only image never had
+// a working remote backup) — it's rendered as plain HTML/CSS instead of an <img>/background-image
+function gameEndBadgeHtml() {
+  return `<div class="game-end-badge">GAME<br>END</div>`;
+}
+
+function zoneMatches(card, row) {
+  for (const z of card.zones) {
+    const rows = ZONE_ROWS[z];
+    if (rows && rows.includes(row)) return true;
+  }
+  return false;
+}
+
+function canBePlaced(card, row, col, board) {
+  const occupant = board.fish[row][col];
+  if (occupant && !(card.finspan > occupant.finspan)) return false;
+  if (!zoneMatches(card, row)) return false;
+  if (card.diveSite) {
+    if (DIVE_SITE_COLS[card.diveSite] !== col) return false;
+  }
+  if (card.cost.includes("tuck")) {
+    if (!occupant) return false;
+    if (occupant.finspan > card.finspan) return false;
+  }
+  return true;
+}
+
+function slotMeetsRestriction(board, row, col, restriction) {
+  if (!restriction) return true;
+  const r = restriction.toLowerCase();
+  switch (r) {
+    case "sun": return ZONE_ROWS.Sun.includes(row);
+    case "dusk": return ZONE_ROWS.Dusk.includes(row);
+    case "night": return ZONE_ROWS.Night.includes(row);
+    case "top": return row === 0;
+    case "bottom": return row === 5;
+    case "purple": return col === 1;
+    case "blue": return col === 0;
+    case "green": return col === 2;
+    case "small": return !board.fish[row][col] || board.fish[row][col].size === "small";
+    case "medium": return !board.fish[row][col] || board.fish[row][col].size === "medium";
+    case "large": return !board.fish[row][col] || board.fish[row][col].size === "large";
+    case "pred": case "predator": return hasPredTag(board.fish[row][col]);
+    default: return true;
+  }
+}
+
+function canAffordCardFromHand(card, player) {
+  const cost = card.cost;
+  if (!cost || cost.length === 0) return true;
+  return cost.every((costItem) => {
+    if (costItem === "tuck") return true;
+    let available = 0;
+    switch (costItem) {
+      case "young": available = countAll(player.board, (i, j) => player.board.young[i][j]); break;
+      case "egg": available = countAll(player.board, (i, j) => player.board.eggs[i][j]); break;
+      case "school": available = countAll(player.board, (i, j) => player.board.schools[i][j]); break;
+      case "card": available = player.hand.length - 1; break;
+      default: available = 0;
+    }
+    const needed = cost.filter((c) => c === costItem).length;
+    return available >= needed;
+  });
+}
+
+/* =========================================================
+   6. QUEUE ENGINE
+   ========================================================= */
+
+function pushQueueStep(step) {
+  state.queue.push(Object.assign({ ownerId: state.activePlayerId }, step));
+}
+function pushQueueStepFront(steps) {
+  state.queue.unshift(...steps.map((s) => Object.assign({ ownerId: state.activePlayerId }, s)));
+}
+
+// The single definition of "nothing left to resolve" -- checked against state.queue[0] itself
+// (matching what actually gates every action) rather than state.queue.length, so the "End Turn"
+// button the UI shows can never disagree with whether a new action is actually allowed to start.
+function queueIsEmpty() { return !state.queue[0]; }
+
+// Each turn allows exactly one NEW action (playing a card, or activating a dive site) -- once
+// state.actedThisTurn is true, only the CURRENT action's own resolution (its cost step, its
+// ability-reward steps) may continue via the queue; a second, independent action has to wait
+// for the next turn (see endTurn()/nextPlayerInOrder()). queueIsEmpty() alone can't tell these
+// apart, since the queue is empty both before your first action AND after it finishes resolving.
+function canStartNewAction() { return isMyTurn() && queueIsEmpty() && !state.actedThisTurn; }
+
+// "action source" highlight: every queue step carries sourceRow/sourceCol (plus, for dive-site
+// zone bonuses, source:"dive site" and sourceRow as a zone key instead of a board row) marking
+// whatever put it in the queue -- a card's cost/ability, or a dive-site zone reward. These check
+// whether the CURRENT front-of-queue step's source matches a given board cell / zone-reward cell,
+// so that cell can be highlighted blue the moment that step becomes the one being resolved.
+function queueSourceIsCell(row, col) {
+  const q0 = state.queue[0];
+  return !!q0 && typeof q0.sourceRow === "number" && q0.sourceRow === row && q0.sourceCol === col;
+}
+function queueSourceIsZone(zoneKey, col) {
+  const q0 = state.queue[0];
+  return !!q0 && q0.source === "dive site" && q0.sourceCol === col && q0.sourceRow === zoneKey;
+}
+
+function normalizeRewardToken(tok) {
+  let t = tok.toLowerCase();
+  if (t === "recyle") t = "recycle"; // bugfix: typo in source data
+  if (t === "card") return QUEUE.DRAW_CARD;
+  if ([QUEUE.YOUNG, QUEUE.EGG, QUEUE.SCHOOL, QUEUE.RECYCLE, QUEUE.HATCH, QUEUE.MOVE].includes(t)) return t;
+  return null; // unknown / unimplemented reward token (e.g. "tuck", "fish", numeric counts)
+}
+
+// central ability-DSL parser: turns an abilityReward token array into queue steps.
+// used for BOTH "when played" and "if activated" triggers (unlike the original code,
+// which only DSL-parsed "when played" rewards and pushed "if activated" tokens raw).
+function abilityToQueueSteps(rewardTokens, ctx) {
+  if (!rewardTokens || rewardTokens.length === 0) return [];
+  if (rewardTokens.includes("if")) return []; // scoring-only clause, handled at game-end/round-end time
+  const base = { sourceRow: ctx.row, sourceCol: ctx.col, sourceAbility: ctx.sourceAbility };
+  if (rewardTokens.includes("in")) {
+    const restriction = rewardTokens[rewardTokens.indexOf("in") + 1];
+    return [Object.assign({ type: QUEUE.FISH_FROM_HAND, restriction }, base)];
+  }
+  if (rewardTokens.includes("on")) {
+    const restriction = rewardTokens[rewardTokens.length - 1];
+    const every = rewardTokens[0] === "egg" || rewardTokens.includes("every") || rewardTokens.includes("each");
+    const type = normalizeRewardToken(rewardTokens[0]);
+    if (!type) return [Object.assign({ type: QUEUE.UNKNOWN, label: rewardTokens.join(" ") }, base)];
+    return [Object.assign({ type, restriction, every }, base)];
+  }
+  return rewardTokens.map((tok) => {
+    const type = normalizeRewardToken(tok);
+    return Object.assign({ type: type || QUEUE.UNKNOWN, label: type ? undefined : tok }, base);
+  });
+}
+
+// Reward-granting steps (young/egg/school/card/fish-from-hand/hatch/move) are self-explanatory
+// from their queue icon (plus the restriction icon — see restrictionIconHtml()) and the
+// can-drop/source highlighting already on the board, so — matching the original app.js, which
+// never had prompt text for these at all — they return no text here. Only steps needing an
+// instruction beyond "tap the highlighted thing" (a resource cost, a choice with a
+// non-obvious alternative, or a full-screen/meta action) keep one.
+function queueLabel(step) {
+  if (!step) return "";
+  switch (step.type) {
+    case QUEUE.COST: return "Pay the cost";
+    case QUEUE.YOUNG: return "";
+    case QUEUE.EGG: return "";
+    case QUEUE.SCHOOL: return "";
+    case QUEUE.DRAW_CARD: return "";
+    case QUEUE.RECYCLE: return "Tap a discarded card to reclaim it (or Done to draw instead)";
+    case QUEUE.FISH_FROM_HAND: return "";
+    case QUEUE.MOVE: return "";
+    case QUEUE.HATCH: return "";
+    case QUEUE.END_ROUND: return "Round complete — tap End Round";
+    case QUEUE.END_GAME_ABILITY: return "Tap a 'game end' fish to trigger it, or Done when finished";
+    default: return "Unimplemented ability (" + (step.label || step.type) + ") — tap Done to skip";
+  }
+}
+
+// restriction icon shown after a queue step's own icon (e.g. an egg icon followed by an arrow
+// and a purple flipper icon for "egg on every purple") — ported from the original app.js's
+// getIconFromName()/ArrowDown pairing. A second arrow is shown for "every"/"each" restrictions
+// (matching the original: eggs, which are always "on every", always got two).
+const RESTRICTION_ICONS = {
+  sun: [ICONS.sun], dusk: [ICONS.dusk], night: [ICONS.night],
+  top: [ICONS.sun, ICONS.sun], bottom: [ICONS.night, ICONS.night],
+  blue: [ICONS.flipperBlue], purple: [ICONS.flipperPurple], green: [ICONS.flipperGreen],
+  small: [ICONS.small], medium: [ICONS.medium], large: [ICONS.large], pred: [ICONS.pred],
+};
+function restrictionIconHtml(step) {
+  if (!step.restriction) return "";
+  const srcs = RESTRICTION_ICONS[step.restriction.toLowerCase()];
+  if (!srcs) return "";
+  const arrowCount = step.every ? 2 : 1;
+  let html = "";
+  for (let i = 0; i < arrowCount; i++) html += `<img src="${ICONS.arrowDown}" class="icon queue-arrow-icon"/>`;
+  html += srcs.map((s) => `<img src="${s}" class="icon"/>`).join("");
+  return html;
+}
+
+function slotKey(row, col) { return row + "," + col; }
+
+function finishQueueStep(opts) {
+  const step = state.queue[0];
+  if (!step) return;
+  if (opts && opts.every) {
+    // leave it in the queue, just re-render (used by egg/fishFromHand "every" loops)
+    render();
+    return;
+  }
+  state.queue.shift();
+  saveHistorySnapshot();
+  afterQueueChange();
+}
+
+function afterQueueChange() {
+  // no auto-resolution here by design — every step needs a tap. This just checks
+  // whether the queue is now empty and, if so, whether a round/game boundary is reached.
+  render();
+}
+
+function checkUsesForRoundEnd(player) {
+  const total = player.uses.playFish + player.uses.blueSite + player.uses.purpleSite + player.uses.greenSite;
+  if (total >= 6) {
+    if (state.currentRound >= 4) {
+      if (!state.queue.some((s) => s.type === QUEUE.END_GAME_ABILITY)) pushQueueStep({ type: QUEUE.END_GAME_ABILITY });
+    } else {
+      if (!state.queue.some((s) => s.type === QUEUE.END_ROUND)) pushQueueStep({ type: QUEUE.END_ROUND });
+    }
+  }
+}
+
+/* =========================================================
+   7. TURN ENGINE
+   ========================================================= */
+
+// finds the next player (in turn order) who still has actions left this round/game,
+// skipping anyone already done — a round consists of up to 6 turns per player, not
+// one shared pool of 6 turns for the whole table
+function nextPlayerInOrder(id) {
+  const order = state.playerOrder;
+  const idx = order.indexOf(id);
+  for (let i = 1; i <= order.length; i++) {
+    const candidate = order[(idx + i) % order.length];
+    if (!playerIsDoneThisRound(state.players[candidate])) return candidate;
+  }
+  return null; // everyone has used all their turns
+}
+
+function deliverPendingBonuses(playerId) {
+  const p = state.players[playerId];
+  if (!p || p.pendingBonuses.length === 0) return;
+  const allSteps = [];
+  for (const b of p.pendingBonuses) allSteps.push(...b.steps);
+  p.pendingBonuses = [];
+  if (allSteps.length > 0) {
+    state.queue.push(...allSteps.map((s) => Object.assign({ ownerId: playerId }, s)));
+    pushLog(p.name + " received bonus effects from another player's turn.");
+  }
+}
+
+function grantAllPlayersBonus(sourcePlayerId, steps) {
+  for (const otherId of state.playerOrder) {
+    if (otherId === sourcePlayerId) continue;
+    state.players[otherId].pendingBonuses.push({
+      steps: steps.map((s) => Object.assign({}, s)),
+      grantedByPlayerId: sourcePlayerId,
+      grantedAtRound: state.currentRound,
+    });
+  }
+}
+
+async function endTurn() {
+  if (!isMyTurn()) return;
+  if (!queueIsEmpty()) return;
+  const next = nextPlayerInOrder(state.activePlayerId);
+  if (next === null) return; // everyone's out of turns; game-end is handled by resolveEndGameAbilityDone
+  state.activePlayerId = next;
+  state.actedThisTurn = false;
+  deliverPendingBonuses(next);
+  pushLog(state.players[next].name + "'s turn.");
+  broadcast({ type: "state:turnEnd", payload: { state: serializeSharedState(), newActivePlayerId: next } });
+  saveHistorySnapshot();
+  render();
+
+  if (state.isAsyncGame) {
+    if (state.isPassAndPlay) {
+      // same device keeps going as the next player -- no link/handoff needed, just hand the
+      // phone over and swap whose hand/board is "yours" for the rest of this session.
+      // renderBoard()'s fast path only ever patches the panel matching myPlayerId, reusing a
+      // DOM-element cache keyed by (row,col) alone -- it was never built to handle myPlayerId
+      // itself changing mid-session (only live P2P mode does that, once per browser tab, before
+      // any panels exist yet), so without forcing a full rebuild here the stale cache would keep
+      // pointing at the PREVIOUS own player's board cells even after this reassignment.
+      state.myPlayerId = next;
+      state.boardDirty = true;
+      render();
+    } else {
+      // link-based async games have no live connection to push the update through, so the
+      // player who just finished needs a link to hand off — copy it straight to the clipboard,
+      // no popup to dismiss first. generateShareLink() is NOT awaited here on purpose (see
+      // copyTextToClipboardAsync()) so the clipboard write stays tied to this tap's own gesture.
+      const ok = await copyTextToClipboardAsync(generateShareLink());
+      pushLog(ok
+        ? "Turn link copied to clipboard — send it to the next player."
+        : "Couldn't copy the turn link automatically — open the Lobby to copy it manually.");
+      render();
+    }
+  }
+}
+
+/* =========================================================
+   8. SCORING
+   ========================================================= */
+
+function computeRoundBonusPoints(round, board) {
+  if (round > 3) return 0;
+  const idx = state.roundBonuses[round - 1];
+  if (idx === null || idx === undefined) return 0;
+  return ROUND_BONUS_CALCULATIONS[idx](board);
+}
+
+function finalizeRoundEnd() {
+  // scores just the active player's own round bonus and marks them done for this round;
+  // the round only actually advances (resetting everyone's turns) once every player has
+  // used all 6 of their turns — a round is 6 turns per player, not 6 turns shared by the table
+  const player = state.players[state.activePlayerId];
+  const points = computeRoundBonusPoints(state.currentRound, player.board);
+  player.roundPoints[state.currentRound - 1] = points;
+  pushLog(player.name + " scored " + points + " points for round " + state.currentRound + ".");
+  state.queue.shift();
+
+  const allDone = state.playerOrder.every((pid) => playerIsDoneThisRound(state.players[pid]));
+  if (allDone) {
+    for (const pid of state.playerOrder) {
+      const p = state.players[pid];
+      p.uses = { playFish: 0, blueSite: 0, purpleSite: 0, greenSite: 0 };
+      p.actionsThisRound = [];
+    }
+    state.currentRound += 1;
+    pushLog("Round " + (state.currentRound - 1) + " is complete. Round " + state.currentRound + " begins.");
+  }
+}
+
+function computeFinalScore(player) {
+  const b = player.board;
+  const fishPoints = countAll(b, (i, j) => (b.fish[i][j] ? b.fish[i][j].points : 0));
+  const youngPoints = countAll(b, (i, j) => b.young[i][j]);
+  const eggPoints = countAll(b, (i, j) => b.eggs[i][j]);
+  const schoolPoints = countAll(b, (i, j) => b.schools[i][j]) * 6;
+  const tuckedPoints = countAll(b, (i, j) => b.tucked[i][j].length);
+  const roundTotal = player.roundPoints.reduce((a, c) => a + c, 0);
+  const gameEnd = countEndOfGameAbilityPoints(b);
+  const total = fishPoints + youngPoints + eggPoints + schoolPoints + tuckedPoints + roundTotal + gameEnd;
+  return { fishPoints, youngPoints, eggPoints, schoolPoints, tuckedPoints, roundTotal, gameEnd, total };
+}
+
+// resolveEndGameAbilityDone lives in the EVENT HANDLERS section below, alongside the
+// other tap-driven resolvers it belongs with (it needs to run after triggerEndGameAbility).
+
+/* =========================================================
+   8b. HISTORY (undo) / SERIALIZATION
+   ========================================================= */
+
+function snapshotState() {
+  return JSON.stringify({
+    players: state.players, playerOrder: state.playerOrder, activePlayerId: state.activePlayerId,
+    currentRound: state.currentRound, roundBonuses: state.roundBonuses, deck: state.deck,
+    queue: state.queue, selections: state.selections, selectedInstanceId: state.selectedInstanceId,
+    actionLog: state.actionLog, gameStarted: state.gameStarted, gameOver: state.gameOver,
+    finalScores: state.finalScores, endGameUsedSlots: state.endGameUsedSlots,
+  });
+}
+function saveHistorySnapshot() {
+  state.history.push(snapshotState());
+  if (state.history.length > 40) state.history.shift();
+}
+function restoreHistorySnapshot() {
+  // history's top entry always mirrors the current live state (each action pushes a
+  // fresh snapshot right after it runs). To undo, discard that stale "current" entry
+  // and restore to whatever is now on top (the state as of the previous action) —
+  // leaving that entry in place so it continues to mirror the (now current) state.
+  if (!isMyTurn() || state.history.length < 2) return;
+  state.history.pop();
+  const snap = JSON.parse(state.history[state.history.length - 1]);
+  Object.assign(state, snap);
+  render();
+}
+
+function serializeSharedState() {
+  return {
+    gameId: state.gameId,
+    players: state.players, playerOrder: state.playerOrder, activePlayerId: state.activePlayerId,
+    currentRound: state.currentRound, roundBonuses: state.roundBonuses, deck: state.deck,
+    gameStarted: state.gameStarted, gameOver: state.gameOver, finalScores: state.finalScores,
+    endGameUsedSlots: state.endGameUsedSlots, actionLog: state.actionLog,
+  };
+}
+function applySharedState(shared) {
+  Object.assign(state, shared);
+  state.queue = [];
+  state.selections = [];
+  state.selectedInstanceId = null;
+  state.actedThisTurn = false;
+  state.boardDirty = true; // another player's boards just arrived over the network — full rebuild next render
+}
+
+/* =========================================================
+   9. RENDERING
+   ========================================================= */
+
+function escapeHtml(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+const DIVE_SITE_BONUSES = {
+  blue: ["card", "card", "card", "recycle"],
+  purple: ["egg", "egg", "egg", "egg"],
+  green: ["hatch", "hatch", "move", "move"],
+};
+
+function slotIsValidTarget(row, col) {
+  const me = myPlayer();
+  if (!me || !isMyTurn()) return false;
+  const q0 = state.queue[0];
+  if (q0) {
+    switch (q0.type) {
+      case QUEUE.YOUNG:
+        return !!me.board.fish[row][col] && slotMeetsRestriction(me.board, row, col, q0.restriction);
+      case QUEUE.EGG:
+        return !!me.board.fish[row][col] && me.board.eggs[row][col] === 0 && slotMeetsRestriction(me.board, row, col, q0.restriction);
+      case QUEUE.SCHOOL:
+        return !!me.board.fish[row][col] && me.board.schools[row][col] === 0 && slotMeetsRestriction(me.board, row, col, q0.restriction);
+      case QUEUE.MOVE: {
+        if (state.selections.length === 0) return me.board.young[row][col] > 0 || me.board.schools[row][col] === 1;
+        const src = state.selections[0];
+        if (src.row === row && src.col === col) return false;
+        return src.row === row || src.col === col;
+      }
+      case QUEUE.FISH_FROM_HAND: {
+        if (!state.selectedInstanceId) return false;
+        const card = me.hand.find((c) => c.instanceId === state.selectedInstanceId);
+        return !!card && canBePlaced(card, row, col, me.board) && slotMeetsRestriction(me.board, row, col, q0.restriction);
+      }
+      case QUEUE.END_GAME_ABILITY: {
+        const c = me.board.fish[row][col];
+        return !!c && c.abilityType === "game end" && !state.endGameUsedSlots[row + "," + col] && !c.abilityReward.includes("if");
+      }
+      default: return false;
+    }
+  }
+  if (state.selectedInstanceId && !state.actedThisTurn) {
+    const card = me.hand.find((c) => c.instanceId === state.selectedInstanceId);
+    return !!card && canBePlaced(card, row, col, me.board);
+  }
+  return false;
+}
+
+function renderSlot(row, col, player, isOwnPanel) {
+  const b = player.board;
+  const fish = b.fish[row][col];
+  const valid = isOwnPanel && slotIsValidTarget(row, col);
+  const sourceHighlight = isOwnPanel && queueSourceIsCell(row, col);
+  const tucked = b.tucked[row][col];
+  const youngSelectedCount = isOwnPanel ? state.selections.filter((s) => s.type === "young" && s.row === row && s.col === col).length : 0;
+  const eggSelected = isOwnPanel && state.selections.some((s) => s.type === "egg" && s.row === row && s.col === col);
+  const schoolSelected = isOwnPanel && state.selections.some((s) => s.type === "school" && s.row === row && s.col === col);
+  const isMoveSrc = isOwnPanel && state.queue[0] && state.queue[0].type === QUEUE.MOVE && state.selections[0] && state.selections[0].row === row && state.selections[0].col === col;
+
+  let tokensHtml = "";
+  for (let i = 0; i < b.young[row][col]; i++) {
+    tokensHtml += `<div class="token token-young${i < youngSelectedCount || isMoveSrc ? " selected" : ""}" data-target="young" data-row="${row}" data-col="${col}"><img src="${ICONS.young}" class="icon"/></div>`;
+  }
+  if (b.eggs[row][col] > 0) {
+    tokensHtml += `<div class="token token-egg${eggSelected ? " selected" : ""}" data-target="egg" data-row="${row}" data-col="${col}"><img src="${ICONS.egg}" class="icon"/></div>`;
+  }
+  if (b.schools[row][col] === 1 || (b.young[row][col] >= 3 && b.schools[row][col] === 0)) {
+    tokensHtml += `<div class="token token-school${schoolSelected || isMoveSrc ? " selected" : ""}" data-target="school" data-row="${row}" data-col="${col}" style="${b.schools[row][col] === 0 ? "opacity:0.45;" : ""}"><img src="${ICONS.school}" class="icon"/></div>`;
+  }
+  // consumed (tucked) fish sit opposite young/egg/school -- "tucked-first" pushes this whole
+  // trailing group to the right end of the same flex row via margin-left:auto, instead of a
+  // separate "x2" text badge
+  for (let i = 0; i < tucked.length; i++) {
+    tokensHtml += `<div class="token token-tucked${i === 0 ? " tucked-first" : ""}"><img src="${ICONS.tucked}" class="icon"/></div>`;
+  }
+
+  // the starting "Forage Fish" pieces point at the sprite sheet's card-BACK design (there's no
+  // real per-species art for them), which intermittently fails to actually paint as a
+  // background-image on these cells when a game is set up fresh or loaded from an async link —
+  // shown as a simple recycle icon instead, sidestepping that image entirely rather than
+  // depending on it to load
+  const isForage = !!fish && fish.tags && fish.tags.includes("forage");
+  const bg = fish && !isForage ? cardImageStyle(fish) : "";
+  return `<div class="board-slot${valid ? " can-drop" : ""}${sourceHighlight ? " source-highlight" : ""}" data-row="${row}" data-col="${col}">
+    <div class="slot-fish-img${isForage ? " forage-slot" : ""}" data-target="fish" data-row="${row}" data-col="${col}" style="${bg}">
+      ${isForage ? `<img src="${ICONS.recycle}" class="icon forage-icon"/>` : ""}
+    </div>
+    <div class="slot-tokens">${tokensHtml}</div>
+  </div>`;
+}
+
+// one player's full board (dive row, zones, grid) — used to build one panel of the
+// horizontally swipeable board-wrap strip, one panel per player in turn order
+// the dive row + zones + grid for one player's board — split out from renderBoardPanel() so
+// the fast path in renderBoard() can refresh just your own panel's contents without touching
+// (or re-decoding the card art images inside) every other player's panel on every tap
+function renderBoardPanelInner(player, isOwnPanel) {
+  const total = player.uses.playFish + player.uses.blueSite + player.uses.purpleSite + player.uses.greenSite;
+  const canActivate = isOwnPanel && canStartNewAction() && total < 6;
+  const countBadge = (n) => n > 0 ? `<span class="use-count">&times;${n}</span>` : "";
+
+  const diveRow = `<div class="dive-row">
+    <button class="dive-btn" data-divesite="0" ${canActivate ? "" : "disabled"}><img src="${ICONS.flipperBlue}"/>${countBadge(player.uses.blueSite)}</button>
+    <button class="dive-btn" data-divesite="1" ${canActivate ? "" : "disabled"}><img src="${ICONS.flipperPurple}"/>${countBadge(player.uses.purpleSite)}</button>
+    <button class="dive-btn" data-divesite="2" ${canActivate ? "" : "disabled"}><img src="${ICONS.flipperGreen}"/>${countBadge(player.uses.greenSite)}</button>
+  </div>`;
+
+  function zoneLabel(icon, text) {
+    return `<div class="zone-label-row"><img src="${icon}" style="width:14px;height:14px;" class="icon"/> ${text}</div>`;
+  }
+  function gridRows(rows) {
+    return `<div class="board-grid">${rows.map((r) => [0, 1, 2].map((c) => renderSlot(r, c, player, isOwnPanel)).join("")).join("")}</div>`;
+  }
+  const ZONE_ROW_RANGES = [ZONE_ROWS.Sun, ZONE_ROWS.Dusk, ZONE_ROWS.Night];
+  // shows the reward each dive site (blue/purple/green) grants at this zone, above that zone's slots
+  // greyed out when that column has no fish in this zone yet, since diving wouldn't trigger it
+  function rewardIconRow(zoneIdx, zoneKey) {
+    const rows = ZONE_ROW_RANGES[zoneIdx];
+    const cells = ["blue", "purple", "green"].map((site, col) => {
+      const hasFish = rows.some((r) => !!player.board.fish[r][col]);
+      const token = DIVE_SITE_BONUSES[site][zoneIdx];
+      const icon = ICONS[normalizeRewardToken(token)] || ICONS[token] || ICONS.drawCard;
+      const highlighted = isOwnPanel && queueSourceIsZone(zoneKey, col);
+      return `<div class="zone-reward-cell${hasFish ? "" : " dim"}${highlighted ? " source-highlight" : ""}"><img src="${icon}" class="icon"/></div>`;
+    }).join("");
+    return `<div class="zone-reward-row" data-zone="${zoneKey}">${cells}</div>`;
+  }
+  // shows the once-per-round "first dive" bonus for each site, only while still available this round
+  function firstDiveRow() {
+    const anyAvailable = ["blue", "purple", "green"].some((site) => player.uses[site + "Site"] <= 0);
+    if (!anyAvailable) return "";
+    const cells = ["blue", "purple", "green"].map((site, col) => {
+      const available = player.uses[site + "Site"] <= 0;
+      const token = DIVE_SITE_BONUSES[site][3];
+      const icon = ICONS[normalizeRewardToken(token)] || ICONS[token] || ICONS.drawCard;
+      const highlighted = isOwnPanel && queueSourceIsZone("first-dive", col);
+      return `<div class="zone-reward-cell${available ? "" : " dim"}${highlighted ? " source-highlight" : ""}"><img src="${icon}" class="icon"/></div>`;
+    }).join("");
+    return zoneLabel(ICONS.wave, "First dive bonus") + `<div class="zone-reward-row" data-zone="firstdive">${cells}</div>`;
+  }
+
+  // other players' hand + discard aren't hidden info in this port (no secret-hand mechanic),
+  // so a read-only horizontal strip at the bottom of their panel lets you see what they're
+  // holding — same card art as your own hand/discard strip, just not tappable. Only shown on
+  // opponents' panels: your own hand/discard already has its own strip at the bottom of the
+  // whole screen (#hand-region), so repeating it here would be redundant.
+  function peekHandDiscardStrip() {
+    if (isOwnPanel) return "";
+    const handHtml = player.hand.map((card) => `<div class="mini-card" style="pointer-events:none;"><div class="mini-card-img" style="${cardImageStyle(card)}"></div></div>`).join("");
+    const discardHtml = player.discard.length === 0 ? "" : `<div class="hand-discard-label">Discard</div>` +
+      player.discard.map((card) => `<div class="mini-card discard-card" style="pointer-events:none;"><div class="mini-card-img" style="${cardImageStyle(card)}"></div></div>`).join("");
+    if (!handHtml && !discardHtml) return "";
+    return zoneLabel(ICONS.fishFromHand, "Hand &amp; discard") + `<div class="peek-hand-strip">${handHtml}${discardHtml}</div>`;
+  }
+
+  return `${diveRow}
+    ${zoneLabel(ICONS.sun, "Sunlight")}${rewardIconRow(0, "sun")}${gridRows([0, 1, 2])}
+    ${zoneLabel(ICONS.dusk, "Twilight")}${rewardIconRow(1, "dusk")}${gridRows([3])}
+    ${zoneLabel(ICONS.night, "Midnight")}${rewardIconRow(2, "night")}${gridRows([4, 5])}
+    ${firstDiveRow()}
+    ${peekHandDiscardStrip()}`;
+}
+
+function renderBoardPanel(player, isOwnPanel) {
+  if (!player) return "";
+  const isTheirTurn = state.gameStarted && !state.gameOver && player.id === state.activePlayerId;
+  const header = `<div class="panel-header"><span>${escapeHtml(player.name)}</span>${isOwnPanel ? '<span class="panel-you-tag">You</span>' : ""}</div>`;
+  return `<div class="player-board-panel${isTheirTurn ? " their-turn" : ""}" data-player="${player.id}">
+    ${header}
+    ${renderBoardPanelInner(player, isOwnPanel)}
+  </div>`;
+}
+
+// per-cell DOM + last-known-content cache for the currently-mounted "own panel". A full
+// string rebuild of all 18 cells (each with nested token/image elements) turned out to be the
+// real cost of render() on slower mobile JS engines — the orchestration itself is cheap, but
+// reparsing ~18 cells' worth of markup through innerHTML, every tap, is not. Most taps only
+// actually change ONE cell (a token selected, a fish placed), so this compares a cheap string
+// "signature" of each cell's content against what's currently on screen and only touches the
+// DOM for cells that actually changed — the rest are skipped entirely, not just cheaply redrawn.
+let ownPanelCellCache = null;
+
+function computeCellContentSignature(board, row, col) {
+  const fish = board.fish[row][col];
+  const fishSig = fish ? fish.sheet + "/" + fish.row + "/" + fish.col : "-";
+  const q0 = state.queue[0];
+  const moveSrc = (q0 && q0.type === QUEUE.MOVE && state.selections[0]) ? state.selections[0] : null;
+  const youngSel = state.selections.filter((s) => s.type === "young" && s.row === row && s.col === col).length;
+  const eggSel = state.selections.some((s) => s.type === "egg" && s.row === row && s.col === col) ? 1 : 0;
+  const schoolSel = state.selections.some((s) => s.type === "school" && s.row === row && s.col === col) ? 1 : 0;
+  const isMoveSrc = (moveSrc && moveSrc.row === row && moveSrc.col === col) ? 1 : 0;
+  return fishSig + "|" + board.tucked[row][col].length + "|" + board.young[row][col] + "|" +
+    board.eggs[row][col] + "|" + board.schools[row][col] + "|" + youngSel + "|" + eggSel + "|" + schoolSel + "|" + isMoveSrc;
+}
+
+// dive buttons + the small zone-reward/first-dive rows have no card art and are cheap to just
+// redraw outright every time — only the 18-cell grid below needs the signature-diff treatment
+function patchPanelChrome(myPanel, player) {
+  const total = player.uses.playFish + player.uses.blueSite + player.uses.purpleSite + player.uses.greenSite;
+  const canActivate = canStartNewAction() && total < 6;
+  ["blue", "purple", "green"].forEach((site, i) => {
+    const btn = myPanel.querySelector('.dive-btn[data-divesite="' + i + '"]');
+    if (!btn) return;
+    btn.disabled = !canActivate;
+    let countEl = btn.querySelector(".use-count");
+    const n = player.uses[site + "Site"];
+    if (n > 0) {
+      const text = "×" + n;
+      if (!countEl) btn.insertAdjacentHTML("beforeend", '<span class="use-count">' + text + "</span>");
+      else if (countEl.textContent !== text) countEl.textContent = text;
+    } else if (countEl) {
+      countEl.remove();
+    }
+  });
+
+  const ZONE_ROW_RANGES = { sun: ZONE_ROWS.Sun, dusk: ZONE_ROWS.Dusk, night: ZONE_ROWS.Night };
+  ["sun", "dusk", "night"].forEach((zoneKey) => {
+    const row = myPanel.querySelector('.zone-reward-row[data-zone="' + zoneKey + '"]');
+    if (!row) return;
+    const rows = ZONE_ROW_RANGES[zoneKey];
+    Array.from(row.children).forEach((cell, col) => {
+      const hasFish = rows.some((r) => !!player.board.fish[r][col]);
+      cell.classList.toggle("dim", !hasFish);
+      cell.classList.toggle("source-highlight", queueSourceIsZone(zoneKey, col));
+    });
+  });
+  const firstDiveRow = myPanel.querySelector('.zone-reward-row[data-zone="firstdive"]');
+  if (firstDiveRow) {
+    ["blue", "purple", "green"].forEach((site, col) => {
+      const cell = firstDiveRow.children[col];
+      if (!cell) return;
+      cell.classList.toggle("dim", player.uses[site + "Site"] > 0);
+      cell.classList.toggle("source-highlight", queueSourceIsZone("first-dive", col));
+    });
+  }
+}
+
+function patchOwnPanelGrid(myPanel, player) {
+  if (!ownPanelCellCache) ownPanelCellCache = {};
+  for (let r = 0; r < 6; r++) {
+    for (let c = 0; c < 3; c++) {
+      const key = r + "," + c;
+      let entry = ownPanelCellCache[key];
+      if (!entry || !entry.el || !entry.el.isConnected) {
+        entry = { el: myPanel.querySelector('.board-slot[data-row="' + r + '"][data-col="' + c + '"]'), sig: null };
+        ownPanelCellCache[key] = entry;
+      }
+      if (!entry.el) continue;
+      const sig = computeCellContentSignature(player.board, r, c);
+      if (sig !== entry.sig) {
+        entry.el.outerHTML = renderSlot(r, c, player, true);
+        entry.el = myPanel.querySelector('.board-slot[data-row="' + r + '"][data-col="' + c + '"]');
+        entry.sig = sig;
+      }
+      entry.el.classList.toggle("can-drop", slotIsValidTarget(r, c));
+      entry.el.classList.toggle("source-highlight", queueSourceIsCell(r, c));
+    }
+  }
+}
+
+// renders one panel per player, side by side, in turn order — the strip scrolls/snaps
+// horizontally (see #board-wrap CSS) so swiping left/right moves between players' boards.
+//
+// Full rebuilds (all panels' markup + card art regenerated) only happen when the panel set
+// itself is stale: game just (re)started, or a network/link sync just landed (state.boardDirty).
+// Every other call — i.e. essentially every tap during normal play — patches only your own
+// panel, and only the specific cells that actually changed within it (see patchOwnPanelGrid);
+// other players' panels just get their turn-highlight class kept in sync. This is what keeps
+// taps snappy even on slower mobile JS engines, once more than one board is mounted at a time.
+function renderBoard() {
+  const container = document.getElementById("board-wrap");
+  if (!state.gameStarted) { container.innerHTML = ""; state.boardDirty = true; ownPanelCellCache = null; return; }
+
+  const existing = container.querySelectorAll(".player-board-panel");
+  const panelSetMatches = existing.length === state.playerOrder.length &&
+    Array.from(existing).every((el, i) => el.dataset.player === state.playerOrder[i]);
+
+  if (state.boardDirty || !panelSetMatches) {
+    const prevScrollLeft = container.scrollLeft;
+    // each panel also scrolls independently on the vertical axis (a board is taller than the
+    // viewport) — rebuilding innerHTML destroys and recreates every panel node, which would
+    // otherwise silently reset both axes back to (0,0)
+    const prevScrollTops = {};
+    existing.forEach((panel) => { prevScrollTops[panel.dataset.player] = panel.scrollTop; });
+    container.innerHTML = state.playerOrder
+      .map((pid) => renderBoardPanel(state.players[pid], pid === state.myPlayerId))
+      .join("");
+    container.scrollLeft = prevScrollLeft;
+    container.querySelectorAll(".player-board-panel").forEach((panel) => {
+      const prevTop = prevScrollTops[panel.dataset.player];
+      if (prevTop) panel.scrollTop = prevTop;
+    });
+    state.boardDirty = false;
+    ownPanelCellCache = null; // the panel (and its cells) are brand new DOM nodes
+    return;
+  }
+
+  const myPanel = container.querySelector('.player-board-panel[data-player="' + state.myPlayerId + '"]');
+  if (myPanel) {
+    patchPanelChrome(myPanel, myPlayer());
+    patchOwnPanelGrid(myPanel, myPlayer());
+  }
+  existing.forEach((panel) => {
+    panel.classList.toggle("their-turn", !state.gameOver && panel.dataset.player === state.activePlayerId);
+  });
+}
+
+// jumps whichever player panel is currently horizontally in view (#board-wrap scrolls
+// between players, each panel scrolls vertically on its own) to the top or bottom of its own
+// scroll -- used by the two small arrow buttons next to the hamburger icon in #bottom-nav.
+function scrollActiveBoardPanel(edge) {
+  const wrap = document.getElementById("board-wrap");
+  const panels = wrap.querySelectorAll(".player-board-panel");
+  if (!panels.length) return;
+  const idx = Math.round(wrap.scrollLeft / wrap.clientWidth);
+  const panel = panels[Math.max(0, Math.min(panels.length - 1, idx))];
+  panel.scrollTo({ top: edge === "top" ? 0 : panel.scrollHeight, behavior: "smooth" });
+}
+
+function renderHand() {
+  const me = myPlayer();
+  const el = document.getElementById("hand-region");
+  if (!me) { el.innerHTML = ""; return; }
+  const q0 = state.queue[0];
+  const pickableForCost = q0 && q0.type === QUEUE.COST && q0.cost.includes("card");
+  const pickableForFromHand = q0 && q0.type === QUEUE.FISH_FROM_HAND;
+  const pickableForPlay = !q0 && !state.actedThisTurn;
+  const handHtml = me.hand.map((card) => {
+    const affordable = pickableForPlay ? canAffordCardFromHand(card, me) : true;
+    const selected = card.instanceId === state.selectedInstanceId || state.selections.some((s) => s.type === "card" && s.instanceId === card.instanceId);
+    const clickable = isMyTurn() && (pickableForCost || pickableForFromHand || pickableForPlay);
+    return `<div class="mini-card${selected ? " selected" : ""}${(!affordable && pickableForPlay) ? " unaffordable" : ""}${pickableForFromHand ? " fromhand-target" : ""}"
+      data-instance="${card.instanceId}" style="${clickable ? "" : "pointer-events:none;"}">
+      <div class="mini-card-img" style="${cardImageStyle(card)}"></div>
+    </div>`;
+  }).join("");
+
+  const pickableForRecycle = isMyTurn() && q0 && q0.type === QUEUE.RECYCLE;
+  const discardHtml = me.discard.length === 0 ? "" : `<div class="hand-discard-label">Discard</div>` + me.discard.map((c) => `<div class="mini-card discard-card" data-instance="${c.instanceId}" style="${pickableForRecycle ? "" : "pointer-events:none;opacity:0.6;"}">
+      <div class="mini-card-img" style="${cardImageStyle(c)}"></div>
+    </div>`).join("");
+
+  el.innerHTML = handHtml + discardHtml;
+}
+
+function renderQueuePanel() {
+  const region = document.getElementById("queue-region");
+  const q0 = state.queue[0];
+  // queue-prompt text is kept up to date (harmless, useful for debugging in devtools) but the
+  // element itself is permanently hidden via CSS — see .queue-prompt — so none of this is ever
+  // actually shown to the player; the icon row + board highlighting carry the UI on their own.
+  const promptEl = document.getElementById("queue-prompt");
+  if (!isMyTurn()) { region.classList.remove("visible"); return; }
+  if (!q0) {
+    if (!state.actedThisTurn) { region.classList.remove("visible"); return; }
+    region.classList.add("visible");
+    promptEl.textContent = "Nothing left to resolve — end your turn.";
+    document.getElementById("queue-icons").innerHTML = "";
+    document.getElementById("cost-items").innerHTML = "";
+    document.getElementById("queue-actions").innerHTML = `<button id="end-turn-btn" class="primary">End Turn</button>`;
+    return;
+  }
+  region.classList.add("visible");
+  promptEl.textContent = queueLabel(q0);
+
+  const iconFor = (type) => ICONS[type] || null;
+  let iconsHtml = "";
+  for (let i = state.queue.length - 1; i >= 0; i--) {
+    const it = state.queue[i];
+    if (!it) continue; // defensive: a falsy entry should never end up in state.queue, but this loop iterates the whole array, unlike the queueIsEmpty() front-only check
+    if (it.type === QUEUE.END_ROUND) {
+      const idx = state.roundBonuses[state.currentRound - 1];
+      iconsHtml += idx != null
+        ? `<span style="display:inline-block;width:22px;height:26px;border-radius:3px;${roundBonusCardStyle(idx)}"></span>`
+        : `<span style="display:inline-block;width:22px;height:26px;border-radius:3px;font-size:7px;overflow:hidden;">${gameEndBadgeHtml()}</span>`;
+      continue;
+    }
+    const src = it.label === "tuck" ? ICONS.tucked : iconFor(it.type);
+    iconsHtml += src
+      ? `<img src="${src}" class="icon"/>${restrictionIconHtml(it)}`
+      : `<span style="font-size:11px;background:var(--panel-2);border-radius:4px;padding:2px 4px;">${escapeHtml(it.label || it.type)}</span>`;
+  }
+  document.getElementById("queue-icons").innerHTML = iconsHtml;
+
+  let costHtml = "";
+  if (q0.type === QUEUE.COST) {
+    costHtml = q0.cost.map((item) => {
+      const need = q0.cost.filter((c) => c === item).length;
+      const have = state.selections.filter((s) => s.type === item).length;
+      const idxAmongSame = q0.cost.slice(0, q0.cost.indexOf(item)).filter((c) => c === item).length;
+      const satisfied = have > idxAmongSame || item === "tuck";
+      const icon = item === "tuck" ? ICONS.tucked : (ICONS[item] || ICONS.drawCard);
+      return `<div class="cost-item${satisfied ? " satisfied" : ""}"><img src="${icon}"/></div>`;
+    }).join("");
+  }
+  document.getElementById("cost-items").innerHTML = costHtml;
+
+  const actions = document.getElementById("queue-actions");
+  let btns = "";
+  if (q0.type === QUEUE.COST) {
+    const satisfied = q0.cost.every((item) => item === "tuck" || state.selections.filter((s) => s.type === item).length >= q0.cost.filter((c) => c === item).length);
+    btns += `<button id="pay-cost-btn" class="primary" ${satisfied ? "" : "disabled"}>Pay Cost</button>`;
+  } else if (q0.type === QUEUE.END_ROUND) {
+    btns += `<button id="end-round-btn" class="primary">End Round</button>`;
+  } else if (q0.type === QUEUE.END_GAME_ABILITY) {
+    btns += `<button id="done-btn">Done (finish scoring)</button>`;
+  } else if (q0.type === QUEUE.DRAW_CARD) {
+    btns += `<button id="draw-deck-btn" class="primary">Draw a Card (${state.deck.length} left)</button>`;
+  } else {
+    btns += `<button id="done-btn">Done / Skip</button>`;
+  }
+  actions.innerHTML = btns;
+}
+
+function renderStatusBar() {
+  // the "your turn" indicator is a single colour highlight along the bottom edge of the
+  // status bar rather than text — each player's own board panel already carries their name
+  // and their own highlight when it's their turn, so this one is purely "is it MY turn".
+  document.getElementById("status-bar").classList.toggle("my-turn-glow", state.gameStarted && !state.gameOver && isMyTurn());
+
+  const strip = document.getElementById("round-bonuses-strip");
+  strip.classList.toggle("hidden", !state.ui.bonusesVisible);
+  strip.innerHTML = [0, 1, 2].map((i) => {
+    const idx = state.roundBonuses[i];
+    const desc = idx != null ? ROUND_BONUS_DESCRIPTIONS[idx] : null;
+    const active = state.currentRound === i + 1;
+    const bg = idx != null ? roundBonusCardStyle(idx) : "";
+    return `<div class="round-bonus-chip${active ? " active" : ""}" style="${bg}" title="${desc ? escapeHtml(desc.name + ": " + desc.text) : "Not yet chosen"}">${desc ? "" : "?"}</div>`;
+  }).join("") + `<div class="round-bonus-chip${state.currentRound >= 4 ? " active" : ""}" title="Game end abilities">${gameEndBadgeHtml()}</div>`;
+  const toggleBtn = document.getElementById("toggle-bonuses-btn");
+  toggleBtn.classList.toggle("collapsed", !state.ui.bonusesVisible);
+
+  document.getElementById("undo-btn").disabled = !isMyTurn() || state.history.length < 2;
+}
+
+const ACTION_DOT_ICON = { fish: ICONS.fishFromHand, blue: ICONS.flipperBlue, purple: ICONS.flipperPurple, green: ICONS.flipperGreen };
+
+function renderTurnDots() {
+  const el = document.getElementById("turn-dots-row");
+  const me = myPlayer();
+  if (!me || !state.gameStarted) { el.innerHTML = ""; return; }
+  const nextIdx = me.actionsThisRound.length;
+  el.innerHTML = Array.from({ length: 6 }, (_, i) => {
+    const act = me.actionsThisRound[i];
+    if (act) {
+      const label = act.type === "fish" ? ("Played " + (act.label || "a fish")) : (act.type[0].toUpperCase() + act.type.slice(1) + " dive site activated");
+      return `<div class="turn-dot act-${act.type}" title="${escapeHtml(label)}"><img src="${ACTION_DOT_ICON[act.type]}"/></div>`;
+    }
+    const upcoming = i === nextIdx && isMyTurn();
+    return `<div class="turn-dot empty${upcoming ? " next-up" : ""}" title="Action ${i + 1} of 6 — not yet used"></div>`;
+  }).join("");
+}
+
+function renderOpponents() {
+  const el = document.getElementById("opponents-body");
+  const others = state.playerOrder.filter((id) => id !== state.myPlayerId);
+  if (others.length === 0) { el.innerHTML = "<p>No other players yet.</p>"; return; }
+  el.innerHTML = others.map((id) => {
+    const p = state.players[id];
+    if (!p) return "";
+    const rows = [0, 1, 2, 3, 4, 5].map((r) => [0, 1, 2].map((c) => {
+      const fish = p.board.fish[r][c];
+      const bg = fish ? cardImageStyle(fish) : "";
+      const tok = (p.board.young[r][c] ? "Y" + p.board.young[r][c] : "") + (p.board.eggs[r][c] ? " E" : "") + (p.board.schools[r][c] ? " S" : "");
+      return `<div class="mini-slot" style="${bg}">${tok ? `<span class="mini-tok">${tok}</span>` : ""}</div>`;
+    }).join("")).join("");
+    return `<div class="opponent-block">
+      <h3>${escapeHtml(p.name)} ${id === state.activePlayerId ? "(active)" : ""} — hand: ${p.hand.length}, deck shared: ${state.deck.length}</h3>
+      <div class="mini-board">${rows}</div>
+    </div>`;
+  }).join("");
+}
+
+function renderChat() {
+  document.getElementById("chat-log").innerHTML = state.net.chatLog.map((m) =>
+    `<div class="chat-msg"><span class="who">${escapeHtml(m.from)}:</span>${escapeHtml(m.text)}</div>`
+  ).join("");
+}
+
+function renderActionLog() {
+  document.getElementById("action-log-list").innerHTML = state.actionLog.slice(-100).reverse().map((l) => `<div>${escapeHtml(l)}</div>`).join("");
+}
+
+function renderLobby() {
+  const usernameInput = document.getElementById("my-username-input");
+  // don't stomp on the user's in-progress typing if some unrelated event (a peer connecting,
+  // etc.) triggers a render() while they're still choosing a username
+  if (document.activeElement !== usernameInput) usernameInput.value = state.net.myUsername || "";
+
+  const connected = !!state.net.myPeerId && !state.net.peerIdError;
+  const dot = document.getElementById("username-status-dot");
+  dot.classList.toggle("connected", connected);
+  dot.title = state.net.peerIdError || (connected ? ("Connected as \"" + state.net.myUsername + "\"") : (state.net.myUsername ? "Connecting..." : "Not connected"));
+  document.getElementById("username-error-text").textContent = state.net.peerIdError || "";
+
+  const list = document.getElementById("peer-list");
+  const ids = Object.keys(state.net.conns).length ? Object.keys(state.net.conns) : [];
+  const pendingRows = state.net.pendingPeerInputs || [];
+  let html = "";
+  ids.forEach((pid) => {
+    const status = state.net.connectionStatus[pid] || "connecting";
+    html += `<div class="peer-row"><input type="text" value="${escapeHtml(displayUsername(pid))}" readonly /><span>${status === "open" ? "&#9989; connected" : status}</span></div>`;
+  });
+  pendingRows.forEach((val, i) => {
+    html += `<div class="peer-row"><input type="text" class="peer-input" data-idx="${i}" placeholder="Friend's username" value="${escapeHtml(val || "")}" /><button class="peer-connect-btn" data-idx="${i}">Connect</button></div>`;
+  });
+  list.innerHTML = html;
+  document.getElementById("lobby-status").textContent = state.gameStarted ? "Game already in progress." : ("Players in lobby: " + (1 + ids.length));
+  document.getElementById("start-game-btn").disabled = state.gameStarted;
+
+  const asyncList = document.getElementById("async-player-list");
+  const names = state.ui.asyncPlayerInputs || [];
+  asyncList.innerHTML = names.map((val, i) => `<div class="async-player-row">
+      <input type="text" class="async-player-input" data-idx="${i}" placeholder="Player ${i + 1} name" value="${escapeHtml(val || "")}" />
+      ${names.length > 2 ? `<button class="remove-async-player-btn" data-idx="${i}">&times;</button>` : ""}
+    </div>`).join("");
+  document.getElementById("start-async-btn").disabled = state.gameStarted;
+  document.getElementById("pass-and-play-checkbox").checked = state.isPassAndPlay;
+  document.getElementById("share-link-fields").classList.toggle("hidden", document.getElementById("pass-and-play-checkbox").checked);
+}
+
+function renderFinalScore() {
+  const overlay = document.getElementById("final-score-overlay");
+  if (!state.gameOver || !state.finalScores) { overlay.classList.remove("open"); return; }
+  overlay.classList.add("open");
+  const rows = state.playerOrder.map((id) => {
+    const p = state.players[id];
+    const s = state.finalScores[id];
+    return `<tr><td colspan="2"><strong>${escapeHtml(p.name)}</strong></td></tr>
+      <tr><td>Fish points</td><td>${s.fishPoints}</td></tr>
+      <tr><td>Young</td><td>${s.youngPoints}</td></tr>
+      <tr><td>Eggs</td><td>${s.eggPoints}</td></tr>
+      <tr><td>Schools</td><td>${s.schoolPoints}</td></tr>
+      <tr><td>Consumed fish</td><td>${s.tuckedPoints}</td></tr>
+      <tr><td>Round bonuses</td><td>${s.roundTotal}</td></tr>
+      <tr><td>Game-end abilities</td><td>${s.gameEnd}</td></tr>
+      <tr><td><strong>Total</strong></td><td><strong>${s.total}</strong></td></tr>`;
+  }).join("<tr><td colspan='2'>&nbsp;</td></tr>");
+  document.getElementById("final-score-card").innerHTML = `<h2>Final Scores</h2><table>${rows}</table>`;
+}
+
+function isDrawerOpen(id) {
+  const el = document.getElementById(id);
+  return !!el && el.classList.contains("open");
+}
+
+// the board/hand/queue/status are the only things visible during normal play, so those are
+// the only sections rebuilt on every tap; the drawers (lobby, chat, log) are comparatively
+// expensive to rebuild (full peer list, full chat/action log) and invisible unless open, so
+// they're refreshed only while actually open — openDrawer() also refreshes them on open.
+// This is what keeps taps feeling instant: a hand-card selection no longer pays the cost of
+// re-rendering a 100-entry action log and the whole lobby on every single tap.
+function render() {
+  if (state.selections.length > 0) {
+    const q0 = state.queue[0];
+    if (!q0 || (q0.type !== QUEUE.COST && q0.type !== QUEUE.MOVE)) state.selections = [];
+  }
+  // any element still showing "pressed" is about to be superseded by its real new state below
+  // (board tokens/cards get fresh DOM nodes from innerHTML rebuilds anyway, but persistent
+  // elements like buttons need this explicit clear) — clearing it here, not on pointerup,
+  // means the press feedback hands off directly into the real result with no neutral flash in between
+  clearPressed();
+  renderStatusBar();
+  renderTurnDots();
+  renderBoard();
+  renderHand();
+  renderQueuePanel();
+  if (isDrawerOpen("drawer-lobby")) { renderLobby(); renderOpponents(); }
+  if (isDrawerOpen("drawer-chat")) renderChat();
+  if (isDrawerOpen("drawer-log")) renderActionLog();
+  renderFinalScore();
+  renderIdentityPicker();
+  document.body.classList.toggle("not-my-turn", state.gameStarted && !state.gameOver && !isMyTurn());
+  document.body.classList.toggle("card-selected", !!state.selectedInstanceId);
+}
+
+/* =========================================================
+   10. EVENT HANDLERS (game actions)
+   ========================================================= */
+
+function toggleCostSelection(kind, row, col) {
+  const me = myPlayer();
+  const countHere = kind === "young" ? me.board.young[row][col] : kind === "egg" ? me.board.eggs[row][col] : me.board.schools[row][col];
+  const selectedHere = state.selections.filter((s) => s.type === kind && s.row === row && s.col === col).length;
+  if (selectedHere < countHere) {
+    state.selections.push({ type: kind, row, col });
+  } else {
+    state.selections = state.selections.filter((s) => !(s.type === kind && s.row === row && s.col === col));
+  }
+  render();
+}
+
+function placeCardOnBoard(card, row, col, isExtraPlay) {
+  const me = myPlayer();
+  const occupant = me.board.fish[row][col];
+  if (occupant) me.board.tucked[row][col].push(occupant);
+  me.board.fish[row][col] = card;
+  const hi = me.hand.findIndex((c) => c.instanceId === card.instanceId);
+  if (hi > -1) me.hand.splice(hi, 1);
+  pushQueueStepFront([{ type: QUEUE.COST, cost: card.cost.slice(), sourceRow: row, sourceCol: col }]);
+  if (card.abilityType === "when played") {
+    const steps = abilityToQueueSteps(card.abilityReward, { row, col, sourceAbility: "when played" });
+    for (const s of steps) pushQueueStep(s);
+    if (card.isAllPlayers && steps.length) grantAllPlayersBonus(state.activePlayerId, steps);
+  }
+  if (!isExtraPlay) { me.uses.playFish += 1; me.actionsThisRound.push({ type: "fish", label: card.name }); state.actedThisTurn = true; checkUsesForRoundEnd(me); }
+  state.selectedInstanceId = null;
+  pushLog(me.name + " played " + card.name + " at (" + row + "," + col + ")" + (isExtraPlay ? " (bonus play)" : ""));
+}
+
+function tryPlayFish(instanceId, row, col) {
+  if (!canStartNewAction()) return false;
+  const me = myPlayer();
+  const card = me.hand.find((c) => c.instanceId === instanceId);
+  if (!card || !canBePlaced(card, row, col, me.board)) return false;
+  placeCardOnBoard(card, row, col, false);
+  saveHistorySnapshot();
+  render();
+  return true;
+}
+
+function tryCompleteMove(destRow, destCol) {
+  const me = myPlayer();
+  if (state.selections.length !== 1) return;
+  const src = state.selections[0];
+  if (src.row === destRow && src.col === destCol) return;
+  const sameRow = src.row === destRow, sameCol = src.col === destCol;
+  if (!sameRow && !sameCol) return;
+  if (src.type === "young") {
+    if (me.board.young[src.row][src.col] <= 0) return;
+    me.board.young[src.row][src.col] -= 1;
+    me.board.young[destRow][destCol] += 1;
+  } else if (src.type === "school") {
+    if (me.board.schools[src.row][src.col] !== 1) return;
+    const rowRange = [Math.min(src.row, destRow), Math.max(src.row, destRow)];
+    const colRange = [Math.min(src.col, destCol), Math.max(src.col, destCol)];
+    for (let i = rowRange[0]; i <= rowRange[1]; i++) {
+      for (let j = colRange[0]; j <= colRange[1]; j++) {
+        if (i === src.row && j === src.col) continue;
+        if (me.board.schools[i][j] > 0) return;
+      }
+    }
+    me.board.schools[src.row][src.col] = 0;
+    me.board.schools[destRow][destCol] = 1;
+  } else return;
+  state.queue.shift();
+  state.selections = [];
+  pushLog(me.name + " moved a " + src.type + " token.");
+  saveHistorySnapshot();
+  render();
+}
+
+function onSchoolBadgeTap(row, col) {
+  if (!isMyTurn()) return;
+  const me = myPlayer();
+  if (me.board.schools[row][col] === 0) {
+    if (me.board.young[row][col] >= 3) {
+      me.board.young[row][col] -= 3;
+      me.board.schools[row][col] = 1;
+      pushLog(me.name + " formed a school at (" + row + "," + col + ").");
+      saveHistorySnapshot(); render();
+    }
+    return;
+  }
+  const q0 = state.queue[0];
+  if (q0 && q0.type === QUEUE.MOVE) { state.selections = [{ type: "school", row, col }]; render(); return; }
+  if (q0 && q0.type === QUEUE.COST) { toggleCostSelection("school", row, col); return; }
+}
+
+function onYoungTokenTap(row, col) {
+  if (!isMyTurn()) return;
+  const q0 = state.queue[0];
+  if (q0 && q0.type === QUEUE.MOVE) { state.selections = [{ type: "young", row, col }]; render(); return; }
+  if (q0 && q0.type === QUEUE.COST) { toggleCostSelection("young", row, col); return; }
+}
+
+function onEggTokenTap(row, col) {
+  if (!isMyTurn()) return;
+  const me = myPlayer();
+  const q0 = state.queue[0];
+  if (q0 && q0.type === QUEUE.HATCH) {
+    if (me.board.eggs[row][col] > 0) {
+      me.board.eggs[row][col] = 0;
+      me.board.young[row][col] += 1;
+      pushLog(me.name + " hatched an egg at (" + row + "," + col + ").");
+      state.queue.shift();
+      saveHistorySnapshot(); render();
+    }
+    return;
+  }
+  if (q0 && q0.type === QUEUE.COST) { toggleCostSelection("egg", row, col); return; }
+}
+
+function triggerEndGameAbility(row, col) {
+  const me = myPlayer();
+  const card = me.board.fish[row][col];
+  const key = row + "," + col;
+  if (!card || card.abilityType !== "game end" || state.endGameUsedSlots[key]) return;
+  if (card.abilityReward.includes("if")) return;
+  state.endGameUsedSlots[key] = true;
+  const steps = abilityToQueueSteps(card.abilityReward, { row, col, sourceAbility: "game end" });
+  state.queue.shift();
+  pushQueueStepFront(steps.concat([{ type: QUEUE.END_GAME_ABILITY }]));
+  pushLog(me.name + "'s " + card.name + " game-end ability triggered.");
+  saveHistorySnapshot();
+  render();
+}
+
+function resolveEndGameAbilityDone() {
+  const player = state.players[state.activePlayerId];
+  player.finishedGame = true;
+  state.queue.shift();
+  pushLog(player.name + " has finished the game.");
+
+  const allFinished = state.playerOrder.every((pid) => state.players[pid].finishedGame);
+  if (allFinished) {
+    const scores = {};
+    for (const pid of state.playerOrder) scores[pid] = computeFinalScore(state.players[pid]);
+    state.finalScores = scores;
+    state.gameOver = true;
+    pushLog("Game over!");
+  }
+  saveHistorySnapshot();
+  render();
+}
+
+function onFishAreaTap(row, col) {
+  if (!isMyTurn()) return;
+  const me = myPlayer();
+  const q0 = state.queue[0];
+  if (q0 && q0.type === QUEUE.YOUNG) {
+    if (me.board.fish[row][col] && slotMeetsRestriction(me.board, row, col, q0.restriction)) {
+      me.board.young[row][col] += 1;
+      pushLog(me.name + " added a young fish at (" + row + "," + col + ").");
+      state.queue.shift();
+      saveHistorySnapshot(); render();
+    }
+    return;
+  }
+  if (q0 && q0.type === QUEUE.EGG) {
+    if (me.board.fish[row][col] && me.board.eggs[row][col] === 0 && slotMeetsRestriction(me.board, row, col, q0.restriction)) {
+      me.board.eggs[row][col] = 1;
+      pushLog(me.name + " laid an egg at (" + row + "," + col + ").");
+      if (!q0.every) state.queue.shift();
+      saveHistorySnapshot(); render();
+    }
+    return;
+  }
+  if (q0 && q0.type === QUEUE.SCHOOL) {
+    if (me.board.fish[row][col] && me.board.schools[row][col] === 0 && slotMeetsRestriction(me.board, row, col, q0.restriction)) {
+      me.board.schools[row][col] = 1;
+      pushLog(me.name + " added a school at (" + row + "," + col + ").");
+      state.queue.shift();
+      saveHistorySnapshot(); render();
+    }
+    return;
+  }
+  if (q0 && q0.type === QUEUE.MOVE) { tryCompleteMove(row, col); return; }
+  if (q0 && q0.type === QUEUE.FISH_FROM_HAND) {
+    if (state.selectedInstanceId) {
+      const card = me.hand.find((c) => c.instanceId === state.selectedInstanceId);
+      if (card && canBePlaced(card, row, col, me.board) && slotMeetsRestriction(me.board, row, col, q0.restriction)) {
+        state.queue.shift();
+        placeCardOnBoard(card, row, col, true);
+        saveHistorySnapshot(); render();
+      }
+    }
+    return;
+  }
+  if (q0 && q0.type === QUEUE.END_GAME_ABILITY) { triggerEndGameAbility(row, col); return; }
+  if (!q0 && state.selectedInstanceId) { tryPlayFish(state.selectedInstanceId, row, col); }
+}
+
+function onDeckTap() {
+  if (!isMyTurn()) return;
+  const q0 = state.queue[0];
+  if (!q0 || q0.type !== QUEUE.DRAW_CARD) return;
+  const me = myPlayer();
+  if (state.deck.length > 0) {
+    const card = state.deck.pop();
+    me.hand.push(card);
+    pushLog(me.name + " drew a card.");
+  }
+  state.queue.shift();
+  saveHistorySnapshot();
+  render();
+}
+
+function onDiscardCardTap(instanceId) {
+  if (!isMyTurn()) return;
+  const q0 = state.queue[0];
+  if (!q0 || q0.type !== QUEUE.RECYCLE) return;
+  const me = myPlayer();
+  const idx = me.discard.findIndex((c) => c.instanceId === instanceId);
+  if (idx === -1) return;
+  const card = me.discard.splice(idx, 1)[0];
+  me.hand.push(card);
+  pushLog(me.name + " reclaimed " + card.name + " from the discard pile.");
+  state.queue.shift();
+  saveHistorySnapshot();
+  render();
+}
+
+function onHandCardTap(instanceId) {
+  if (!isMyTurn()) return;
+  const me = myPlayer();
+  const q0 = state.queue[0];
+  const card = me.hand.find((c) => c.instanceId === instanceId);
+  if (!card) return;
+  if (q0 && q0.type === QUEUE.COST) {
+    if (!q0.cost.includes("card")) return;
+    const needed = q0.cost.filter((c) => c === "card").length;
+    const already = state.selections.find((s) => s.type === "card" && s.instanceId === instanceId);
+    if (already) { state.selections = state.selections.filter((s) => s !== already); }
+    else if (state.selections.filter((s) => s.type === "card").length < needed) { state.selections.push({ type: "card", instanceId }); }
+    render();
+    return;
+  }
+  if (q0 && q0.type === QUEUE.FISH_FROM_HAND) {
+    state.selectedInstanceId = state.selectedInstanceId === instanceId ? null : instanceId;
+    render();
+    return;
+  }
+  if (!q0 && !state.actedThisTurn) {
+    state.selectedInstanceId = state.selectedInstanceId === instanceId ? null : instanceId;
+    render();
+  }
+}
+
+function payCost() {
+  const q0 = state.queue[0];
+  if (!q0 || q0.type !== QUEUE.COST) return;
+  const me = myPlayer();
+  const cost = q0.cost;
+  const satisfied = cost.every((item) => item === "tuck" || state.selections.filter((s) => s.type === item).length >= cost.filter((c) => c === item).length);
+  if (!satisfied) return;
+  for (const item of cost) {
+    if (item === "tuck") continue;
+    const idx = state.selections.findIndex((s) => s.type === item);
+    if (idx === -1) continue;
+    const sel = state.selections[idx];
+    if (item === "young") me.board.young[sel.row][sel.col] -= 1;
+    else if (item === "egg") me.board.eggs[sel.row][sel.col] -= 1;
+    else if (item === "school") me.board.schools[sel.row][sel.col] = 0;
+    else if (item === "card") {
+      const ci = me.hand.findIndex((c) => c.instanceId === sel.instanceId);
+      if (ci > -1) { me.discard.push(me.hand[ci]); me.hand.splice(ci, 1); }
+    }
+    state.selections.splice(idx, 1);
+  }
+  state.queue.shift();
+  pushLog(me.name + " paid the cost.");
+  saveHistorySnapshot();
+  render();
+}
+
+function activateDiveSite(col) {
+  if (!canStartNewAction()) return;
+  const me = myPlayer();
+  const total = me.uses.playFish + me.uses.blueSite + me.uses.purpleSite + me.uses.greenSite;
+  if (total >= 6) return;
+  const site = COL_SITE[col];
+  const bonuses = DIVE_SITE_BONUSES[site];
+  const board = me.board;
+  const colFish = board.fish.map((r) => r[col]);
+
+  function queueBonus(rawType, sourceRow) {
+    const type = normalizeRewardToken(rawType);
+    pushQueueStep({ type: type || QUEUE.UNKNOWN, label: type ? undefined : rawType, source: "dive site", sourceCol: col, sourceRow });
+  }
+  function queueIfActivated(card, row) {
+    if (card && card.abilityType === "if activated") {
+      const steps = abilityToQueueSteps(card.abilityReward, { row, col, sourceAbility: "if activated" });
+      for (const s of steps) pushQueueStep(s);
+      if (card.isAllPlayers && steps.length) grantAllPlayersBonus(state.activePlayerId, steps);
+    }
+  }
+
+  if (colFish[0] || colFish[1] || colFish[2]) queueBonus(bonuses[0], "sun");
+  for (let i = 0; i < 3; i++) queueIfActivated(colFish[i], i);
+  if (colFish[3]) queueBonus(bonuses[1], "dusk");
+  queueIfActivated(colFish[3], 3);
+  if (colFish[4] || colFish[5]) queueBonus(bonuses[2], "night");
+  for (let i = 4; i < 6; i++) queueIfActivated(colFish[i], i);
+
+  const useKey = site + "Site";
+  if (me.uses[useKey] <= 0) queueBonus(bonuses[3], "first-dive");
+  me.uses[useKey] += 1;
+  me.actionsThisRound.push({ type: site });
+  state.actedThisTurn = true;
+  state.selectedInstanceId = null; // clear any stale hand-card selection now that a new action can't start until next turn
+  checkUsesForRoundEnd(me);
+  pushLog(me.name + " activated the " + site + " dive site.");
+  saveHistorySnapshot();
+  render();
+}
+
+function handleEndRoundTap() {
+  if (!isMyTurn()) return;
+  const q0 = state.queue[0];
+  if (!q0 || q0.type !== QUEUE.END_ROUND) return;
+  finalizeRoundEnd();
+  saveHistorySnapshot();
+  render();
+}
+
+function handleDoneTap() {
+  if (!isMyTurn()) return;
+  const q0 = state.queue[0];
+  if (!q0 || q0.type === QUEUE.COST) return;
+  if (q0.type === QUEUE.END_GAME_ABILITY) { resolveEndGameAbilityDone(); return; }
+  if (q0.type === QUEUE.END_ROUND) return;
+  state.queue.shift();
+  state.selections = [];
+  saveHistorySnapshot();
+  render();
+}
+
+/* ---- DOM event wiring (delegated) ---- */
+
+// Instant press feedback, driven off raw pointer events rather than CSS :active. Two real
+// mobile-specific reasons for that:
+//  1. iOS Safari only honors :active on a touch tap if some element has a touchstart listener
+//     bound at all — otherwise it never applies the style for taps, only real clicks.
+//  2. The board is now scrollable in two directions (swipe between players' boards, plus
+//     vertical scroll within each panel). Any tap target inside a pannable region makes the
+//     browser wait to see if the finger moves before committing to "tap" vs "scroll" before
+//     firing `click` — touch-action:manipulation doesn't remove that, it only removes the
+//     double-tap-zoom delay. pointerdown fires immediately, before that disambiguation, so
+//     driving the visual feedback off it (separately from the actual game-logic click handler)
+//     is what makes a press look instant even while a scroll gesture is still being resolved.
+function clearPressed() {
+  document.querySelectorAll(".pressed").forEach((el) => el.classList.remove("pressed"));
+}
+
+/* =========================================================
+   DEV: ADD CARD TO HAND — search all 135 fish cards and drop one straight into your own
+   hand, for testing abilities/scoring without having to draw into them naturally. Lives in
+   the Lobby drawer's "Dev Tools" section, as a search popup rather than a full drawer since
+   it's a one-off action, not something that needs to stay open alongside the game.
+   ========================================================= */
+function renderDevCardResults() {
+  const search = document.getElementById("dev-card-search").value.trim().toLowerCase();
+  const matches = CARD_DATA
+    .map((c, idx) => ({ c, idx }))
+    .filter(({ c }) => !search || c.name.toLowerCase().includes(search))
+    .slice(0, 60); // 135 cards max, but no need to render more than fits a few screens of scroll
+  document.getElementById("dev-card-results").innerHTML = matches.map(({ c, idx }) => `
+    <div class="dev-card-row" data-card-index="${idx}">
+      <div class="dev-card-thumb" style="${cardImageStyle(c)}"></div>
+      <div class="dev-card-name">${escapeHtml(c.name)}</div>
+      <div class="dev-card-meta">${escapeHtml(c.size)}${c.cost.length ? " · " + escapeHtml(c.cost.join("+")) : " · free"}</div>
+    </div>`).join("") || `<p style="font-size:12px;color:var(--text-dim);">No matching cards.</p>`;
+}
+
+function openDevCardOverlay() {
+  document.getElementById("dev-card-overlay").classList.remove("hidden");
+  document.getElementById("dev-card-search").value = "";
+  document.getElementById("dev-card-status").textContent = "";
+  renderDevCardResults();
+}
+
+function closeDevCardOverlay() {
+  document.getElementById("dev-card-overlay").classList.add("hidden");
+}
+
+function devAddCardToHand(cardIndex) {
+  const me = myPlayer();
+  const data = CARD_DATA[cardIndex];
+  if (!me || !data) return;
+  me.hand.push(makeCardInstance(data));
+  document.getElementById("dev-card-status").textContent = "Added \"" + data.name + "\" to hand.";
+  saveHistorySnapshot();
+  render();
+}
+
+/* =========================================================
+   DEV TIMING LOG — on-device instrumentation for tap latency.
+   Lives in the Lobby drawer (below the version number). Real touch timing varies a lot by
+   browser/OS in ways that can't be reproduced from a desktop test runner, so this measures
+   it live on whatever device is actually running the page: how long between a finger landing
+   (pointerdown), lifting (pointerup), the browser's synthesized click, and this page's own
+   render() work — so a slow tap can be attributed to "the browser's gesture handling" vs
+   "our own code" instead of guessed at.
+   ========================================================= */
+const devTiming = { log: [], lastPointerDown: null };
+
+function devTimingPush(label, ms) {
+  const at = new Date();
+  const stamp = String(at.getMinutes()).padStart(2, "0") + ":" + String(at.getSeconds()).padStart(2, "0") + "." + String(at.getMilliseconds()).padStart(3, "0");
+  devTiming.log.unshift({ stamp, label, ms: ms.toFixed(1) });
+  if (devTiming.log.length > 50) devTiming.log.length = 50;
+  if (isDrawerOpen("drawer-lobby")) renderDevTimingLog();
+}
+
+function renderDevTimingLog() {
+  const el = document.getElementById("dev-timing-list");
+  if (!el) return;
+  el.innerHTML = devTiming.log.map((e) =>
+    `<div>${e.stamp} <strong>${escapeHtml(e.label)}</strong>: ${e.ms}ms</div>`
+  ).join("") || "<div style='color:var(--text-dim);'>No taps recorded yet — interact with the game, then check back here.</div>";
+}
+
+function wireDevTiming() {
+  // capture phase so this always sees the event first, regardless of what else is listening
+  document.body.addEventListener("pointerdown", (e) => {
+    devTiming.lastPointerDown = { time: performance.now() };
+  }, { capture: true, passive: true });
+  document.body.addEventListener("pointerup", () => {
+    if (!devTiming.lastPointerDown) return;
+    devTimingPush("pointerdown → pointerup", performance.now() - devTiming.lastPointerDown.time);
+  }, { capture: true, passive: true });
+  document.body.addEventListener("click", () => {
+    if (!devTiming.lastPointerDown) return;
+    const clickTime = performance.now();
+    devTimingPush("pointerdown → click", clickTime - devTiming.lastPointerDown.time);
+    devTiming.lastPointerDown = null;
+    // by the next animation frame, any synchronous render() this click triggered has already
+    // run and committed its DOM changes — this is roughly "click handled -> ready to paint"
+    requestAnimationFrame(() => {
+      devTimingPush("click → next frame", performance.now() - clickTime);
+    });
+  }, { capture: true });
+
+  // wrap render() itself so its own execution cost is visible separately from browser/gesture
+  // timing above — if THIS number is small but the tap still feels slow, the delay is in the
+  // browser's touch handling, not this page's code
+  const realRender = render;
+  render = function () {
+    const t0 = performance.now();
+    realRender();
+    const dt = performance.now() - t0;
+    if (dt > 0.2) devTimingPush("render()", dt);
+  };
+}
+
+function wirePressFeedback() {
+  const PRESSABLE = ".board-slot, .mini-card, .dive-btn, .token, button";
+  document.body.addEventListener("pointerdown", (e) => {
+    const target = e.target.closest(PRESSABLE);
+    if (!target || target.disabled) return;
+    target.classList.add("pressed");
+    // safety net only — a successful tap's own click handler calls render(), which clears
+    // "pressed" itself (see render()) at the exact moment the real result is ready, so the
+    // press feedback hands off smoothly into whatever actually happened instead of reverting
+    // to neutral first. This timeout only matters for taps that don't trigger any render at
+    // all (e.g. a no-op tap when it's not your turn), so it never fires stuck.
+    setTimeout(() => target.classList.remove("pressed"), 400);
+  }, { passive: true });
+  // a gesture that turns into a scroll/drag should un-press immediately — that one really is
+  // "nothing happened here", unlike a completed tap
+  document.body.addEventListener("pointercancel", clearPressed, { passive: true });
+  document.body.addEventListener("pointerleave", clearPressed, { passive: true });
+}
+
+// Belt-and-suspenders for touch-action:none: some WebKit versions still let a touch that starts
+// on a touch-action:none element drag-scroll an ancestor (most commonly triggered by the legacy
+// -webkit-overflow-scrolling:touch momentum scroller, which is why that flag was removed from
+// every container above -- but this listener stays as a hard backstop even without it). A tap
+// itself never needs touchmove, so unconditionally cancelling it for these elements costs nothing.
+function wireNoScrollBackstop() {
+  const ALWAYS_NO_SCROLL = ".token, .dive-btn, button, #hand-resize-handle";
+  document.body.addEventListener("touchmove", (e) => {
+    if (e.target.closest(ALWAYS_NO_SCROLL)) { e.preventDefault(); return; }
+    // .board-slot only needs this while it's actually touch-action:none (a hand card is
+    // selected, see body.card-selected in CSS) -- otherwise it's meant to stay scrollable
+    if (document.body.classList.contains("card-selected") && e.target.closest(".board-slot")) e.preventDefault();
+  }, { passive: false });
+}
+
+// Drag-to-resize for the hand strip: the handle above #hand-region tracks pointerdown/move/up
+// via pointer capture (so the drag keeps working even once the finger strays off the thin
+// handle itself), adjusting the --hand-height custom property that both #hand-region and every
+// .mini-card's height:100% are driven by, so cards visibly scale with the region instead of
+// staying pinned at a fixed size while empty space grows around them.
+const HAND_HEIGHT_STORAGE_KEY = "finspan-hand-height";
+const HAND_HEIGHT_MIN = 70;
+const HAND_HEIGHT_DEFAULT = 100; // matches --hand-height's initial value in :root
+const HAND_TAP_MOVE_THRESHOLD = 6; // px of finger movement before a press counts as a drag, not a tap
+function handHeightMax() { return Math.round(window.innerHeight * 0.45); }
+function setHandHeight(px) {
+  const clamped = Math.max(HAND_HEIGHT_MIN, Math.min(handHeightMax(), Math.round(px)));
+  document.documentElement.style.setProperty("--hand-height", clamped + "px");
+  try { localStorage.setItem(HAND_HEIGHT_STORAGE_KEY, String(clamped)); } catch (e) { /* private browsing / storage disabled -- just skip persisting */ }
+  return clamped;
+}
+function loadSavedHandHeight() {
+  try {
+    const raw = localStorage.getItem(HAND_HEIGHT_STORAGE_KEY);
+    if (raw) return parseInt(raw, 10);
+  } catch (e) { /* private browsing / storage disabled */ }
+  return null;
+}
+// Dragging live-resizes as before, but a genuine tap (released before the finger has moved past
+// HAND_TAP_MOVE_THRESHOLD) instead toggles between the default height and the max — so a quick
+// tap is a shortcut for "make it big to see cards" / "put it back", while a real drag still
+// gives free-form control over the exact height.
+function wireHandResizeHandle() {
+  const handle = document.getElementById("hand-resize-handle");
+  const region = document.getElementById("hand-region");
+  let startY = 0, startHeight = 0, moved = false;
+  handle.addEventListener("pointerdown", (e) => {
+    startY = e.clientY;
+    startHeight = region.getBoundingClientRect().height;
+    moved = false;
+    handle.classList.add("dragging");
+    handle.setPointerCapture(e.pointerId);
+  });
+  handle.addEventListener("pointermove", (e) => {
+    if (!handle.classList.contains("dragging")) return;
+    const delta = startY - e.clientY; // dragging up (clientY decreases) grows the hand
+    if (!moved && Math.abs(delta) < HAND_TAP_MOVE_THRESHOLD) return; // still within tap tolerance
+    moved = true;
+    setHandHeight(startHeight + delta);
+  });
+  handle.addEventListener("pointerup", () => {
+    handle.classList.remove("dragging");
+    if (moved) return;
+    const current = region.getBoundingClientRect().height;
+    setHandHeight(current >= handHeightMax() - 2 ? HAND_HEIGHT_DEFAULT : handHeightMax());
+  });
+  handle.addEventListener("pointercancel", () => handle.classList.remove("dragging"));
+}
+
+function wireEvents() {
+  wirePressFeedback();
+  wireNoScrollBackstop();
+  wireHandResizeHandle();
+  wireDevTiming();
+  document.getElementById("clear-dev-timing-btn").addEventListener("click", () => {
+    devTiming.log = [];
+    renderDevTimingLog();
+  });
+  document.getElementById("dev-add-card-btn").addEventListener("click", openDevCardOverlay);
+  document.getElementById("close-dev-card-overlay").addEventListener("click", closeDevCardOverlay);
+  document.getElementById("dev-card-search").addEventListener("input", renderDevCardResults);
+  document.getElementById("dev-card-results").addEventListener("click", (e) => {
+    const row = e.target.closest(".dev-card-row");
+    if (row) devAddCardToHand(parseInt(row.dataset.cardIndex, 10));
+  });
+  // .dive-btn and tokens are always touch-action:none (see CSS), meaning a touch starting on
+  // one of them can never turn into a pan/scroll — panning there is simply disabled, not just
+  // deprioritized — so there's no tap-vs-scroll ambiguity left to resolve. Reacting on
+  // pointerdown itself (rather than even pointerup, let alone click) is safe for exactly that
+  // reason: a scroll gesture that started elsewhere never fires pointerdown here, since
+  // pointerdown only fires on whatever the finger initially lands on.
+  //
+  // .board-slot is different: it's touch-action:none ONLY while a hand card is selected
+  // (body.card-selected, see CSS) — the rest of the time it's the scrollable surface for the
+  // panel, so fish-slot taps have to go through the click listener below instead, where the
+  // ambiguity actually needs the browser's own tap-vs-scroll resolution.
+  document.getElementById("board-wrap").addEventListener("pointerdown", (e) => {
+    const panel = e.target.closest("[data-player]");
+    if (!panel || panel.dataset.player !== state.myPlayerId) return;
+    const diveBtn = e.target.closest(".dive-btn");
+    if (diveBtn) { if (!diveBtn.disabled) activateDiveSite(parseInt(diveBtn.dataset.divesite, 10)); return; }
+    if (document.body.classList.contains("card-selected")) {
+      const fishEl = e.target.closest('[data-target="fish"]');
+      if (fishEl) { onFishAreaTap(parseInt(fishEl.dataset.row, 10), parseInt(fishEl.dataset.col, 10)); return; }
+    }
+    const el = e.target.closest('[data-target="young"], [data-target="egg"], [data-target="school"]');
+    if (!el) return;
+    const row = parseInt(el.dataset.row, 10), col = parseInt(el.dataset.col, 10);
+    const target = el.dataset.target;
+    if (target === "young") onYoungTokenTap(row, col);
+    else if (target === "egg") onEggTokenTap(row, col);
+    else if (target === "school") onSchoolBadgeTap(row, col);
+  });
+  document.getElementById("board-wrap").addEventListener("click", (e) => {
+    if (document.body.classList.contains("card-selected")) return; // already handled on pointerdown above
+    const panel = e.target.closest("[data-player]");
+    if (!panel || panel.dataset.player !== state.myPlayerId) return;
+    const fishEl = e.target.closest('[data-target="fish"]');
+    if (fishEl) onFishAreaTap(parseInt(fishEl.dataset.row, 10), parseInt(fishEl.dataset.col, 10));
+  });
+
+  // .mini-card stays scrollable (touch-action:manipulation), so the browser still needs to
+  // disambiguate tap-vs-scroll there — click is correct (and lets the browser suppress it for
+  // us when a gesture turns out to be a scroll). discard-pile cards are appended after hand
+  // cards in this same strip (see renderHand()), marked by the .discard-card class, and route
+  // to a different handler.
+  document.getElementById("hand-region").addEventListener("click", (e) => {
+    const el = e.target.closest("[data-instance]");
+    if (!el) return;
+    if (el.classList.contains("discard-card")) onDiscardCardTap(el.dataset.instance);
+    else onHandCardTap(el.dataset.instance);
+  });
+
+  document.getElementById("queue-actions").addEventListener("click", (e) => {
+    if (e.target.id === "pay-cost-btn") payCost();
+    else if (e.target.id === "end-round-btn") handleEndRoundTap();
+    else if (e.target.id === "draw-deck-btn") onDeckTap();
+    else if (e.target.id === "done-btn") handleDoneTap();
+    else if (e.target.id === "end-turn-btn") endTurn();
+  });
+
+  document.getElementById("undo-btn").addEventListener("click", restoreHistorySnapshot);
+  document.getElementById("scroll-top-btn").addEventListener("click", () => scrollActiveBoardPanel("top"));
+  document.getElementById("scroll-bottom-btn").addEventListener("click", () => scrollActiveBoardPanel("bottom"));
+  document.getElementById("toggle-bonuses-btn").addEventListener("click", () => {
+    state.ui.bonusesVisible = !state.ui.bonusesVisible;
+    render();
+  });
+
+  const navMap = { lobby: "drawer-lobby", chat: "drawer-chat", log: "drawer-log" };
+  document.getElementById("bottom-nav").addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-drawer]");
+    if (!btn) return;
+    openDrawer(navMap[btn.dataset.drawer]);
+  });
+  ["lobby", "chat", "log"].forEach((k) => {
+    const closeBtn = document.getElementById("close-" + k);
+    if (closeBtn) closeBtn.addEventListener("click", closeDrawers);
+  });
+
+  document.getElementById("set-username-btn").addEventListener("click", () => {
+    const clean = sanitizeUsername(document.getElementById("my-username-input").value);
+    if (!clean) return;
+    saveUsername(clean);
+    initPeer(clean);
+    render();
+  });
+  document.getElementById("copy-username-btn").addEventListener("click", () => {
+    if (navigator.clipboard && state.net.myUsername) navigator.clipboard.writeText(state.net.myUsername);
+  });
+  document.getElementById("add-peer-btn").addEventListener("click", () => {
+    state.net.pendingPeerInputs = state.net.pendingPeerInputs || [];
+    state.net.pendingPeerInputs.push("");
+    render();
+  });
+  document.getElementById("peer-list").addEventListener("click", (e) => {
+    const btn = e.target.closest(".peer-connect-btn");
+    if (!btn) return;
+    const idx = parseInt(btn.dataset.idx, 10);
+    const input = document.querySelector('.peer-input[data-idx="' + idx + '"]');
+    const clean = sanitizeUsername(input && input.value);
+    if (clean) connectToPeer(fullPeerId(clean));
+  });
+  document.getElementById("peer-list").addEventListener("change", (e) => {
+    if (e.target.classList.contains("peer-input")) {
+      const idx = parseInt(e.target.dataset.idx, 10);
+      state.net.pendingPeerInputs[idx] = e.target.value;
+    }
+  });
+  document.getElementById("start-game-btn").addEventListener("click", startGameAsHost);
+
+  document.getElementById("add-async-player-btn").addEventListener("click", () => {
+    state.ui.asyncPlayerInputs.push("");
+    render();
+  });
+  document.getElementById("async-player-list").addEventListener("click", (e) => {
+    const btn = e.target.closest(".remove-async-player-btn");
+    if (!btn) return;
+    state.ui.asyncPlayerInputs.splice(parseInt(btn.dataset.idx, 10), 1);
+    render();
+  });
+  document.getElementById("async-player-list").addEventListener("change", (e) => {
+    if (e.target.classList.contains("async-player-input")) {
+      state.ui.asyncPlayerInputs[parseInt(e.target.dataset.idx, 10)] = e.target.value;
+    }
+  });
+  document.getElementById("pass-and-play-checkbox").addEventListener("change", (e) => {
+    state.isPassAndPlay = e.target.checked;
+    document.getElementById("share-link-fields").classList.toggle("hidden", e.target.checked);
+  });
+  document.getElementById("start-async-btn").addEventListener("click", startAsyncGame);
+  document.getElementById("copy-share-link-btn").addEventListener("click", copyShareLink);
+  document.getElementById("identity-picker-list").addEventListener("click", (e) => {
+    const btn = e.target.closest(".identity-choice-btn");
+    if (btn) chooseIdentity(btn.dataset.player);
+  });
+
+  document.getElementById("chat-send").addEventListener("click", sendChat);
+  document.getElementById("chat-input").addEventListener("keydown", (e) => { if (e.key === "Enter") sendChat(); });
+}
+
+function openDrawer(id) {
+  closeDrawers();
+  document.getElementById(id).classList.add("open");
+  // these sections only render while their drawer is open (see render()), so refresh once now
+  if (id === "drawer-lobby") { renderLobby(); renderOpponents(); renderDevTimingLog(); }
+  else if (id === "drawer-chat") renderChat();
+  else if (id === "drawer-log") renderActionLog();
+}
+function closeDrawers() {
+  document.querySelectorAll(".drawer").forEach((d) => d.classList.remove("open"));
+}
+
+function sendChat() {
+  const input = document.getElementById("chat-input");
+  const text = input.value.trim();
+  if (!text) return;
+  const msg = { from: state.net.myName, text };
+  state.net.chatLog.push(msg);
+  broadcast({ type: "chat", payload: msg });
+  input.value = "";
+  render();
+}
+
+/* =========================================================
+   11. NETWORKING
+   ========================================================= */
+
+function broadcast(msg) {
+  const envelope = Object.assign({ senderId: state.myPlayerId, senderName: state.net.myName }, msg);
+  Object.values(state.net.conns).forEach((conn) => {
+    if (conn && conn.open) {
+      try { conn.send(envelope); } catch (e) { console.error("send failed", e); }
+    }
+  });
+}
+
+function wireConnection(conn) {
+  state.net.conns[conn.peer] = conn;
+  state.net.connectionStatus[conn.peer] = "connecting";
+  conn.on("open", () => {
+    state.net.connectionStatus[conn.peer] = "open";
+    conn.send({ type: "handshake", senderId: state.myPlayerId, senderName: state.net.myName, payload: { peerId: state.net.myPeerId, name: state.net.myName } });
+    if (state.gameStarted) {
+      conn.send({ type: "state:turnEnd", senderId: state.myPlayerId, payload: { state: serializeSharedState(), newActivePlayerId: state.activePlayerId } });
+    }
+    render();
+  });
+  conn.on("data", (msg) => handlePeerMessage(msg));
+  conn.on("close", () => { state.net.connectionStatus[conn.peer] = "closed"; render(); });
+}
+
+function connectToPeer(peerId) {
+  if (!state.net.peer) return;
+  const conn = state.net.peer.connect(peerId);
+  wireConnection(conn);
+}
+
+function handlePeerMessage(msg) {
+  if (!msg || !msg.type) return;
+  switch (msg.type) {
+    case "handshake":
+      state.net.peerNames[msg.payload.peerId] = msg.payload.name || msg.payload.peerId;
+      pushLog((msg.payload.name || "A player") + " connected.");
+      render();
+      break;
+    case "chat":
+      state.net.chatLog.push(msg.payload);
+      render();
+      break;
+    case "lobby:startGame":
+      setupGame(msg.payload.playerInfos, msg.payload.roundBonuses, msg.payload.deckOrder);
+      state.isAsyncGame = false;
+      render();
+      break;
+    case "state:turnEnd":
+      applySharedState(msg.payload.state);
+      deliverPendingBonuses(state.myPlayerId);
+      saveHistorySnapshot();
+      render();
+      break;
+    case "state:requestSync":
+      if (state.gameStarted) {
+        broadcast({ type: "state:turnEnd", payload: { state: serializeSharedState(), newActivePlayerId: state.activePlayerId } });
+      }
+      break;
+    default:
+      break;
+  }
+}
+
+function startGameAsHost() {
+  if (state.gameStarted) return;
+  const playerInfos = [{ id: state.myPlayerId, name: state.net.myName, peerId: state.net.myPeerId }];
+  Object.keys(state.net.conns)
+    .filter((pid) => state.net.connectionStatus[pid] === "open")
+    .forEach((pid) => {
+      playerInfos.push({ id: "p_" + pid, name: state.net.peerNames[pid] || pid, peerId: pid });
+    });
+  const roundBonuses = rollRoundBonuses();
+  const deckOrder = shuffle(CARD_DATA.slice());
+  setupGame(playerInfos, roundBonuses, deckOrder);
+  state.isAsyncGame = false;
+  broadcast({ type: "lobby:startGame", payload: { playerInfos, roundBonuses, deckOrder } });
+  closeDrawers();
+  render();
+}
+
+function initPeer(username) {
+  if (typeof Peer === "undefined") { console.warn("PeerJS failed to load; networking disabled."); return; }
+  const clean = sanitizeUsername(username);
+  if (!clean) return;
+  // switching usernames means the old Peer object's id is stuck forever (PeerJS ids are
+  // immutable once created), so any earlier connection has to be torn down and replaced
+  if (state.net.peer) { try { state.net.peer.destroy(); } catch (e) { /* already gone */ } }
+  state.net.myUsername = clean;
+  state.net.myPeerId = "";
+  state.net.peerIdError = "";
+  // the username doubles as the in-game display name, but only for live/peer-connected play --
+  // async (link-based or pass-and-play) games get their player names from the setup screen
+  // instead (e.g. "Alice"/"Bob"), and those must never be clobbered by whatever PeerJS username
+  // happens to be saved on this device, live-mode connection or not
+  if (!state.isAsyncGame) {
+    state.net.myName = clean;
+    const me = myPlayer();
+    if (me) me.name = clean;
+  }
+  const peer = new Peer(fullPeerId(clean));
+  state.net.peer = peer;
+  peer.on("open", (id) => {
+    state.net.myPeerId = id;
+    // the player's identity must be derived from the chosen username (not a locally-random
+    // placeholder) so that whichever peer calls setupGame() assigns everyone the same ids;
+    // only safe to swap before a game is actually running
+    if (!state.gameStarted) state.myPlayerId = "p_" + clean;
+    render();
+  });
+  peer.on("connection", (conn) => { wireConnection(conn); });
+  peer.on("error", (err) => {
+    console.error("PeerJS error", err);
+    // someone else is already registered under this exact username (on this app's shared
+    // prefix) -- surface that plainly rather than leaving the user staring at "Connecting..."
+    if (err && err.type === "unavailable-id") state.net.peerIdError = "That username is already taken right now — try another.";
+    render();
+  });
+}
+
+/* =========================================================
+   11b. ASYNC LINK SHARING (no live connection needed)
+   ========================================================= */
+
+// cards are re-expressed as an index into the static CARD_DATA array (or -1 for the
+// synthetic Forage Fish) instead of the full object — both ends already have the same
+// CARD_DATA, so this is the single biggest size win for a URL-shareable snapshot.
+function compactCard(card) {
+  if (!card) return null;
+  if (card.name === "Forage Fish") return -1;
+  const idx = CARD_NAME_TO_INDEX.get(card.name);
+  return idx === undefined ? -1 : idx;
+}
+function expandCard(idx) {
+  if (idx === null || idx === undefined) return null;
+  if (idx === -1) return makeForageFish();
+  return makeCardInstance(CARD_DATA[idx]);
+}
+function compactCardList(list) { return (list || []).map(compactCard); }
+function expandCardList(list) { return (list || []).map(expandCard); }
+
+function compactBoard(board) {
+  return {
+    f: board.fish.map((row) => row.map(compactCard)),
+    e: board.eggs, y: board.young, s: board.schools,
+    t: board.tucked.map((row) => row.map(compactCardList)),
+  };
+}
+function expandBoard(b) {
+  return {
+    fish: b.f.map((row) => row.map(expandCard)),
+    eggs: b.e, young: b.y, schools: b.s,
+    tucked: b.t.map((row) => row.map(expandCardList)),
+  };
+}
+
+function compactPlayer(p) {
+  return {
+    id: p.id, name: p.name,
+    hand: compactCardList(p.hand), discard: compactCardList(p.discard),
+    board: compactBoard(p.board), uses: p.uses, art: p.actionsThisRound,
+    rp: p.roundPoints, pb: p.pendingBonuses, fg: p.finishedGame,
+  };
+}
+function expandPlayer(cp) {
+  return {
+    id: cp.id, name: cp.name, peerId: null, connected: true,
+    hand: expandCardList(cp.hand), discard: expandCardList(cp.discard),
+    board: expandBoard(cp.board), uses: cp.uses, actionsThisRound: cp.art || [],
+    roundPoints: cp.rp, pendingBonuses: cp.pb || [], finishedGame: !!cp.fg,
+  };
+}
+
+function buildShareableState() {
+  return {
+    v: 1, gid: state.gameId, po: state.playerOrder, ap: state.activePlayerId,
+    cr: state.currentRound, rb: state.roundBonuses, deck: compactCardList(state.deck),
+    gs: state.gameStarted, go: state.gameOver, fs: state.finalScores,
+    egu: state.endGameUsedSlots, log: state.actionLog.slice(-20),
+    pl: state.playerOrder.map((pid) => compactPlayer(state.players[pid])),
+  };
+}
+function applyShareableState(cs) {
+  state.gameId = cs.gid;
+  state.boardDirty = true; // other players' boards may have changed — full rebuild next render
+  state.playerOrder = cs.po;
+  state.activePlayerId = cs.ap;
+  state.currentRound = cs.cr;
+  state.roundBonuses = cs.rb;
+  state.deck = expandCardList(cs.deck);
+  state.gameStarted = cs.gs;
+  state.gameOver = cs.go;
+  state.finalScores = cs.fs;
+  state.endGameUsedSlots = cs.egu || {};
+  state.actionLog = cs.log || [];
+  state.players = {};
+  for (const cp of cs.pl) state.players[cp.id] = expandPlayer(cp);
+  state.queue = [];
+  state.selections = [];
+  state.selectedInstanceId = null;
+  state.actedThisTurn = false;
+  state.history = [];
+}
+
+function bytesToBase64Url(bytes) {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function base64UrlToBytes(str) {
+  str = str.replace(/-/g, "+").replace(/_/g, "/");
+  while (str.length % 4) str += "=";
+  const binary = atob(str);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+// gzip-compresses when the browser supports CompressionStream (essentially all current
+// mobile/desktop browsers), otherwise falls back to plain base64 so it still works.
+async function encodeStateBlob(obj) {
+  const bytes = new TextEncoder().encode(JSON.stringify(obj));
+  if (typeof CompressionStream !== "undefined") {
+    const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream("gzip"));
+    const compressed = new Uint8Array(await new Response(stream).arrayBuffer());
+    return "g" + bytesToBase64Url(compressed);
+  }
+  return "r" + bytesToBase64Url(bytes);
+}
+async function decodeStateBlob(str) {
+  const flag = str[0];
+  const bytes = base64UrlToBytes(str.slice(1));
+  if (flag === "g") {
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+    const decompressed = new Uint8Array(await new Response(stream).arrayBuffer());
+    return JSON.parse(new TextDecoder().decode(decompressed));
+  }
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+
+async function generateShareLink() {
+  const blob = await encodeStateBlob(buildShareableState());
+  const url = new URL(location.href);
+  url.hash = "s=" + blob;
+  return url.toString();
+}
+
+// with 3+ players, every link load asks who's playing, on purpose — the same link can be
+// opened by anyone at the table (or reopened by the sender themselves to double check it), so
+// we never assume. With exactly two players, though, there's no ambiguity: the link already
+// carries who's up next (buildShareableState()'s "ap"), and whoever opens it can only be that
+// other player, so it's safe to skip the picker and drop them straight into their turn.
+async function tryLoadFromHash() {
+  const hash = location.hash;
+  if (!hash.startsWith("#s=")) return false;
+  try {
+    const compact = await decodeStateBlob(hash.slice(3));
+    applyShareableState(compact);
+    history.replaceState(null, "", location.pathname + location.search);
+    state.isAsyncGame = true;
+    if (state.playerOrder.length === 2) {
+      state.myPlayerId = state.activePlayerId;
+      state.pendingIdentityChoice = false;
+    } else {
+      state.pendingIdentityChoice = true;
+    }
+    return true;
+  } catch (e) {
+    console.error("Failed to load shared game link", e);
+    pushLog("That game link could not be read — it may be corrupted or from a different version.");
+    return false;
+  }
+}
+
+function chooseIdentity(playerId) {
+  state.myPlayerId = playerId;
+  state.pendingIdentityChoice = false;
+  render();
+}
+
+function renderIdentityPicker() {
+  const overlay = document.getElementById("identity-picker-overlay");
+  if (!state.pendingIdentityChoice) { overlay.classList.add("hidden"); return; }
+  overlay.classList.remove("hidden");
+  document.getElementById("identity-picker-list").innerHTML = state.playerOrder.map((pid) => {
+    const p = state.players[pid];
+    return `<button class="identity-choice-btn" data-player="${pid}">${escapeHtml(p.name)}</button>`;
+  }).join("");
+}
+
+// Safari (especially iOS) revokes a tap's "user activation" the moment any await elapses since
+// the click that triggered it -- and generateShareLink() is itself async (it gzip-compresses
+// the shared state), so calling navigator.clipboard.writeText() only after awaiting that link
+// silently fails there, even though nothing looks wrong in the code. The fix is the deferred-
+// value form of the broader write() API: a ClipboardItem whose data is a still-pending Promise
+// keeps the write tied to the ORIGINAL gesture even though the actual text resolves a moment
+// later -- but this call itself has to happen synchronously (no preceding await) for that to
+// work, so callers must pass the promise straight through rather than awaiting it first.
+async function copyTextToClipboardAsync(textPromise) {
+  if (navigator.clipboard && typeof ClipboardItem === "function") {
+    try {
+      await navigator.clipboard.write([
+        new ClipboardItem({ "text/plain": textPromise.then((text) => new Blob([text], { type: "text/plain" })) }),
+      ]);
+      return true;
+    } catch (e) { /* fall through to the older/simpler API below (also covers denied permission) */ }
+  }
+  try {
+    const text = await textPromise;
+    if (navigator.clipboard) await navigator.clipboard.writeText(text);
+    else document.execCommand("copy");
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+async function startAsyncGame() {
+  const names = Array.from(document.querySelectorAll(".async-player-input")).map((el) => el.value.trim()).filter(Boolean);
+  if (names.length < 2) { alert("Add at least 2 player names first."); return; }
+  const playerInfos = names.map((name) => ({ id: uid("async"), name, peerId: null }));
+  const gameId = Math.random().toString(36).slice(2, 10);
+  setupGame(playerInfos, rollRoundBonuses(), null, gameId);
+  state.myPlayerId = playerInfos[0].id;
+  state.isAsyncGame = true;
+  state.isPassAndPlay = document.getElementById("pass-and-play-checkbox").checked;
+  // pass-and-play never leaves this tab, so there's no link to generate or hand off
+  if (!state.isPassAndPlay) await refreshShareLinkBox();
+  render();
+}
+
+async function refreshShareLinkBox() {
+  const box = document.getElementById("share-link-box");
+  if (!box) return;
+  if (!state.gameStarted) { box.value = ""; return; }
+  box.value = "Generating...";
+  box.value = await generateShareLink();
+}
+
+async function copyShareLink() {
+  const box = document.getElementById("share-link-box");
+  if (box && state.gameStarted) box.value = "Generating...";
+  // not awaited here on purpose -- see copyTextToClipboardAsync() for why
+  const linkPromise = generateShareLink().then((link) => { if (box) box.value = link; return link; });
+  const ok = await copyTextToClipboardAsync(linkPromise);
+  document.getElementById("share-link-status").textContent = ok
+    ? "Link copied! Send it to the next player."
+    : "Couldn't auto-copy — select the text above and copy manually.";
+}
+
+/* =========================================================
+   12. BOOT
+   ========================================================= */
+
+async function boot() {
+  state.net.pendingPeerInputs = [];
+  document.getElementById("app-version").textContent = "Finspan v" + APP_VERSION;
+  wireEvents();
+  const savedHandHeight = loadSavedHandHeight();
+  if (savedHandHeight) setHandHeight(savedHandHeight);
+  await tryLoadFromHash();
+  const savedUsername = loadSavedUsername();
+  if (savedUsername) initPeer(savedUsername); // a username is required to open a PeerJS connection; without one, the user picks one in the Lobby and taps Connect
+  render();
+}
+
+// a browser only re-runs page scripts on a full navigation — if a link that differs only by
+// #hash is opened while this same tab/PWA instance is already showing the app (common when an
+// OS reuses an existing tab for a tapped link), no reload happens, so we also have to watch for
+// the hash changing directly and re-import the new state the same way boot() does.
+window.addEventListener("hashchange", async () => {
+  const loaded = await tryLoadFromHash();
+  if (loaded) render();
+});
+
+document.addEventListener("DOMContentLoaded", boot);
+</script>
+</body>
+</html>
